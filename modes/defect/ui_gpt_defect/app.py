@@ -2870,7 +2870,7 @@ class MainWindow(QMainWindow):
         self.height_label=QLabel("高度"); self.height_edit=QLineEdit(str(h)); self.height_edit.setValidator(QIntValidator(0,9999,self))
         self.size_warning=QLabel(GPT2_SIZE_LIMIT_HINT)
         self.size_warning.setObjectName("DangerText")
-        self.num_spin=ReliableSpinBox(); self.num_spin.setRange(1,100); self.num_spin.setValue(self.state.num_outputs)
+        self.num_spin=ReliableSpinBox(); self.num_spin.setRange(1,100000); self.num_spin.setValue(self.state.num_outputs)
         self.run_name_edit=QLineEdit(self.state.run_name); self.run_name_edit.setPlaceholderText("例如：test_001")
         self.estimate_cost_btn=QPushButton("確認參數並估算本次成本")
         self.estimate_cost_btn.setObjectName("PrimaryButton")
