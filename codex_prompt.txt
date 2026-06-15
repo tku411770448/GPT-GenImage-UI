@@ -37,7 +37,7 @@ git config --global --list
 
 ### 設定所要上傳至的 Repository
 git remote -v
-git remote add origin https://github.com/tku411770448/GPT-GenImage-UI-Defect.git
+git remote add origin https://github.com/tku411770448/GPT-GenImage-UI.git
 git remote -v
 
 

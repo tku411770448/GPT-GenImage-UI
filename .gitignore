@@ -11,6 +11,7 @@ configs/
 .venv/
 venv/
 env/
+*.txt
 
 # VS Code local settings
 .vscode/
