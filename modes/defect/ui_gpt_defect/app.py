@@ -2906,7 +2906,7 @@ class MainWindow(QMainWindow):
 
     def page_run(self) -> QWidget:
         lay=QVBoxLayout(); lay.addWidget(self.header("Step 8｜執行生成", "依照目前設定呼叫後端批次生成，並顯示即時 log 與進度。"))
-        row=QHBoxLayout(); start=QPushButton("開始生成"); start.setObjectName("PrimaryButton"); start.clicked.connect(self.safe_action("start_generation", self.start_generation)); stop=QPushButton("停止目前程序"); stop.clicked.connect(self.safe_action("stop_process", self.stop_process)); row.addWidget(start); row.addWidget(stop); row.addStretch(1); lay.addLayout(row)
+        row=QHBoxLayout(); restart=QPushButton("重新開始生成"); restart.setObjectName("PrimaryButton"); restart.clicked.connect(self.safe_action("restart_generation", lambda: self.start_generation(resume=False))); resume=QPushButton("從上次進度開始生成"); resume.clicked.connect(self.safe_action("resume_generation", lambda: self.start_generation(resume=True))); stop=QPushButton("停止目前程序"); stop.clicked.connect(self.safe_action("stop_process", self.stop_process)); row.addWidget(restart); row.addWidget(resume); row.addWidget(stop); row.addStretch(1); lay.addLayout(row)
         self.generation_progress_bar=QProgressBar(); self.generation_progress_bar.setRange(0,1); self.generation_progress_bar.setValue(0); self.generation_progress_bar.setFormat("0/0 張")
         self.generation_progress_label=QLabel("尚未開始生成"); self.generation_progress_label.setObjectName("ProgressStatus")
         self.actual_cost_label=QLabel("本次實際成本：尚未完成生成")
@@ -3787,7 +3787,7 @@ class MainWindow(QMainWindow):
         if self.current_process and self.current_process.state() != QProcess.NotRunning:
             QMessageBox.warning(self,"Running","請等待生成程序結束。"); return False
         if not self.filtered_run_metadata() or not self.current_run_has_successful_outputs():
-            QMessageBox.warning(self,"Missing","目前 Run 尚未找到有效輸出圖，請先按「開始生成」並確認 log 顯示成功。")
+            QMessageBox.warning(self,"Missing","目前 Run 尚未找到有效輸出圖，請先按「重新開始生成」或「從上次進度開始生成」並確認 log 顯示成功。")
             return False
         return True
 
@@ -5192,7 +5192,7 @@ class MainWindow(QMainWindow):
     def current_run_has_successful_outputs(self) -> bool:
         return bool(self.successful_output_files())
 
-    def build_generation_cmd(self) -> list[str]:
+    def build_generation_cmd(self, resume_existing: bool = False) -> list[str]:
         self.update_state_from_widgets()
         self.current_run_name(create_if_empty=True)
         self.save_state()
@@ -5214,6 +5214,8 @@ class MainWindow(QMainWindow):
             cmd += ["--selected-stems-file", str(selected_file)]
         if self.state.run_name:
             cmd += ["--run-name", self.state.run_name]
+        if resume_existing:
+            cmd.append("--resume-existing")
         return cmd
 
     def expected_generation_steps(self)->int:
@@ -5249,7 +5251,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-    def start_generation(self)->None:
+    def start_generation(self, resume: bool=False)->None:
         if not self.save_prompt(show_message=False) or not self.save_model_settings(show_message=False): return
         if not list_images(self.inputs_dir()): QMessageBox.warning(self,"Missing","請先完成裁切與 ROI / Target Area。") ; return
         selected_paths = self.selected_region_image_paths()
@@ -5271,7 +5273,18 @@ class MainWindow(QMainWindow):
         self.generation_started_step = int(self.current_step)
         self.save_state()
         self.set_generation_ui_locked(True)
-        cmd=self.build_generation_cmd(); self.clear_current_run_artifacts_only(); self.reset_generation_progress(self.expected_generation_steps()); self.command_preview.setPlainText(self.scrub_text(" ".join(f'\"{c}\"' if " " in c else c for c in cmd)))
+        cmd=self.build_generation_cmd(resume_existing=resume)
+        if not resume:
+            self.clear_current_run_artifacts_only()
+        existing_completed = min(len(self.successful_output_files()), self.expected_generation_steps()) if resume else 0
+        self.reset_generation_progress(self.expected_generation_steps())
+        if resume and existing_completed:
+            self.set_generation_progress(existing_completed, f"已找到 {existing_completed} 張既有輸出，將從上次進度繼續。")
+        elif resume:
+            self.set_generation_progress(0, "未找到既有輸出，將從第 1 張開始生成。")
+        else:
+            self.set_generation_progress(0, "已清除目前 run 舊輸出，準備重新開始生成。")
+        self.command_preview.setPlainText(self.scrub_text(" ".join(f'"{c}"' if " " in c else c for c in cmd)))
         def _after_generation():
             self.update_actual_generation_cost(); self.refresh_outputs()
             outputs = self.successful_output_files()

@@ -61,6 +61,17 @@ def make_child_run_name(image_stem: str, seed: int) -> str:
     return sanitize_name(f"{image_stem}_seed{seed}")
 
 
+def child_run_has_successful_output(child_dir: Path) -> bool:
+    """Return True when a child run already contains a final generated image."""
+    if not child_dir.exists():
+        return False
+    final_prefixes = ("edited_seed", "generated_seed", "repaired_seed")
+    for path in child_dir.rglob("*"):
+        if path.is_file() and path.suffix.lower() in SUPPORTED and path.name.startswith(final_prefixes):
+            return True
+    return False
+
+
 def resolve_size_for_image(size: str, image: Path) -> str:
     # Keep same_as_original as a semantic mode. run_gpt_image2.py will turn it
     # into an API-valid size and resize final outputs back to the source size.
@@ -155,6 +166,7 @@ def main() -> None:
     p.add_argument("--exclude-repair-padding", type=int, default=8)
     p.add_argument("--no-clip-mask-to-target", action="store_true")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--resume-existing", action="store_true", help="Skip child runs in this batch run folder that already have final generated images.")
     args = p.parse_args()
 
     if not args.dry_run:
@@ -230,7 +242,12 @@ def main() -> None:
         for local_i in range(max(1, int(output_count))):
             seed = args.seed + emitted
             child_run_name = make_child_run_name(img.stem, seed)
-            log_path = batch_output_root / child_run_name / "log.txt"
+            child_run_dir = batch_output_root / child_run_name
+            if args.resume_existing and child_run_has_successful_output(child_run_dir):
+                print(f"[SKIP] existing output: {child_run_name}", flush=True)
+                emitted += 1
+                continue
+            log_path = child_run_dir / "log.txt"
             size_is_original = str(args.size).strip().lower() in {"same_as_original", "original", "source"}
 
             cmd = [
