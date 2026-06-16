@@ -3406,10 +3406,13 @@ class MainWindow(QMainWindow):
     def refresh_project_list(self) -> None:
         if not hasattr(self, "project_cards_layout"):
             return
+        self._project_cards = []
         while self.project_cards_layout.count():
             item = self.project_cards_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.hide()
+                w.setParent(None)
                 w.deleteLater()
         projects = self.load_combined_projects()
         if not projects:
@@ -3418,7 +3421,6 @@ class MainWindow(QMainWindow):
             empty.setAlignment(Qt.AlignCenter)
             self.project_cards_layout.addWidget(empty, 0, 0, 1, 3)
         cols = 3
-        self._project_cards = []
         for n, proj in enumerate(projects):
             card = ProjectCard(proj)
             card.selected.connect(self.safe_slot("select_project_card", self.select_project_card))
@@ -3430,6 +3432,11 @@ class MainWindow(QMainWindow):
             self.project_cards_layout.addWidget(card, n // cols, n % cols)
             self._project_cards.append(card)
         self.project_cards_layout.setRowStretch((len(projects) + cols - 1) // cols, 1)
+        self.project_cards_container.updateGeometry()
+        self.project_cards_container.update()
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
         self.update_home_current_project_label()
         self.preview_project_summary()
 
