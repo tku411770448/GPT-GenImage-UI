@@ -2523,9 +2523,16 @@ class MainWindow(QMainWindow):
                 self._set_widget_value_blocked(self.run_name_edit, "setText", name)
         return name
 
+    def export_scope_is_all(self) -> bool:
+        return getattr(self.state, "export_scope", "current") == "all"
+
+    def current_export_name(self) -> str:
+        if self.export_scope_is_all():
+            return "all_runs"
+        return self.current_run_name(create_if_empty=True)
+
     def current_export_dir(self) -> Path:
-        run_name = self.current_run_name(create_if_empty=True)
-        return self.exports_dir() / run_name
+        return self.exports_dir() / self.current_export_name()
 
     def aggregate_log_path(self) -> Path:
         return ensure_dir(self.project_dir() / "logs") / "aggregate_log.txt"
@@ -5769,7 +5776,10 @@ class MainWindow(QMainWindow):
             zf.writestr(str(top / "log.txt"), log_text)
 
     def export_dataset(self, show_message: bool=True, make_zip: bool=False)->bool:
-        self.update_state_from_widgets(); self.current_run_name(create_if_empty=True); self.save_state()
+        self.update_state_from_widgets()
+        if not self.export_scope_is_all():
+            self.current_run_name(create_if_empty=True)
+        self.save_state()
         if not self.find_run_metadata():
             QMessageBox.warning(self,"Missing","尚未找到生成紀錄。")
             return False
@@ -5792,7 +5802,7 @@ class MainWindow(QMainWindow):
                     if show_message:
                         QMessageBox.information(self,"Done",f"已整理至預設資料夾：\n{export_dir}")
                     return True
-                zip_name=f"Gen_{self.state.class_name}_{self.current_run_name(create_if_empty=True)}.zip"
+                zip_name=f"Gen_{self.state.class_name}_{self.current_export_name()}.zip"
                 zip_path=Path(folder)/zip_name
                 zip_path=zip_path if zip_path.suffix.lower()==".zip" else zip_path.with_suffix(".zip")
                 ensure_dir(zip_path.parent)

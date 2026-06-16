@@ -144,6 +144,14 @@ def collect_final_outputs(meta: dict[str, Any]) -> list[Any]:
     return outputs if isinstance(outputs, list) else []
 
 
+def export_image_name(meta_path: Path, out_path: Path) -> str:
+    group = meta_group_key(meta_path)
+    parent = meta_path.parent.name
+    if group and group != parent:
+        return f"{group}_{parent}_{out_path.name}"
+    return f"{parent}_{out_path.name}"
+
+
 def main() -> None:
     root = project_root()
     p = argparse.ArgumentParser(description="Export GPT Image class runs without auto annotations.")
@@ -230,7 +238,7 @@ def main() -> None:
                 skipped_outputs += 1
                 continue
 
-            safe_name = unique_name(f"{meta_path.parent.name}_{out_path.name}", used_names)
+            safe_name = unique_name(export_image_name(meta_path, out_path), used_names)
 
             if args.yolo and args.copy_images:
                 shutil.copy2(out_path, yolo_images_dir / safe_name)
