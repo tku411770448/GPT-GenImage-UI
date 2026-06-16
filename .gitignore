@@ -12,6 +12,7 @@ configs/
 venv/
 env/
 *.txt
+_launcher_state/
 
 # VS Code local settings
 .vscode/
