@@ -295,6 +295,11 @@ STEP_COUNT = 10
 VISIBLE_STEPS = [0, 2, 3, 5, 6, 7, 8, 9]
 STEP_TO_STACK_INDEX = {step: idx for idx, step in enumerate(VISIBLE_STEPS)}
 STEP_DISPLAY_INDEX = {step: idx + 1 for idx, step in enumerate(VISIBLE_STEPS)}
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
 
 
 def project_root() -> Path:
@@ -307,9 +312,12 @@ def ensure_dir(path: Path) -> Path:
 
 
 def sanitize_name(text: str) -> str:
-    text = str(text).strip().replace(" ", "_")
-    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
+    text = str(text or "").strip()
+    text = re.sub(r"[\x00-\x1f<>:\"/\\|?*]+", "_", text)
+    text = re.sub(r"\s+", "_", text)
     text = re.sub(r"_+", "_", text).strip("._-")
+    if text.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES:
+        text = f"{text}_project"
     return text or "custom_class"
 
 
@@ -1864,6 +1872,7 @@ class UIState:
     project_id: str = ""
     project_name: str = ""
     created_at: str = ""
+    updated_at: str = ""
     class_name: str = "fried_chicken"
     project_mode: str = APP_MODE
     api_key_set: bool = False
@@ -1900,6 +1909,15 @@ class UIState:
     generation_status: str = "idle"
     last_generation_return_code: int = 0
     last_generation_error: str = ""
+
+
+def ui_state_data(data: dict[str, Any] | None = None) -> dict[str, Any]:
+    base = asdict(UIState())
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in base:
+                base[key] = value
+    return base
 
 
 class StepButton(QPushButton):
@@ -2265,8 +2283,7 @@ class MainWindow(QMainWindow):
         if pid and (self.projects_root / pid / "project_state.json").exists():
             try:
                 data = json.loads((self.projects_root / pid / "project_state.json").read_text(encoding="utf-8"))
-                base = asdict(UIState())
-                base.update(data)
+                base = ui_state_data(data)
                 if len(base.get("completed_steps", [])) != STEP_COUNT:
                     done = [False] * STEP_COUNT
                     old = base.get("completed_steps", [])
@@ -2281,8 +2298,7 @@ class MainWindow(QMainWindow):
         if self.root_state_path.exists():
             try:
                 data = json.loads(self.root_state_path.read_text(encoding="utf-8"))
-                base = asdict(UIState())
-                base.update(data)
+                base = ui_state_data(data)
                 base["completed_steps"] = [False] * STEP_COUNT
                 return UIState(**base)
             except Exception:
@@ -2439,14 +2455,15 @@ class MainWindow(QMainWindow):
     def save_state(self) -> None:
         if self.state.project_id:
             pdir = ensure_dir(self.project_dir())
+            now_iso = datetime.now().isoformat(timespec="seconds")
+            if not self.state.created_at:
+                self.state.created_at = now_iso
+            self.state.updated_at = now_iso
             (pdir / "project_state.json").write_text(json.dumps(asdict(self.state), ensure_ascii=False, indent=2), encoding="utf-8")
             idx = self.load_index()
             idx["active_project_id"] = self.state.project_id
             if self.state.saved_project:
                 projects = [p for p in idx.get("projects", []) if p.get("id") != self.state.project_id]
-                now_iso = datetime.now().isoformat(timespec="seconds")
-                if not self.state.created_at:
-                    self.state.created_at = now_iso
                 projects.append({
                     "id": self.state.project_id,
                     "name": self.state.project_name or self.state.project_id,
@@ -3334,8 +3351,16 @@ class MainWindow(QMainWindow):
         names: set[str] = set()
         for item in self.load_combined_projects():
             if str(item.get("id", "")) != exclude_id:
-                names.add(str(item.get("name", "")).strip().lower())
+                names.add(str(item.get("name", "")).strip().casefold())
         return {n for n in names if n}
+
+    def all_project_ids(self, exclude_id: str = "") -> set[str]:
+        ids: set[str] = set()
+        for item in self.load_combined_projects():
+            item_id = str(item.get("id", "")).strip()
+            if item_id and item_id != exclude_id:
+                ids.add(item_id)
+        return ids
 
     def show_project_error(self, text: str) -> None:
         if hasattr(self, "project_error"):
@@ -3478,13 +3503,17 @@ class MainWindow(QMainWindow):
             return
         if not name.strip():
             return
-        normalized = name.strip().lower()
+        normalized = name.strip().casefold()
         if normalized in self.all_project_names():
             self.show_project_error("專案名稱不可重複，請重新命名。")
             QMessageBox.warning(self, "專案名稱重複", "專案名稱不可重複，請重新命名。")
             return
         self.show_project_error("")
         pid = make_project_id(name)
+        if pid in self.all_project_ids() or (self.projects_root / pid).exists():
+            self.show_project_error("Project folder id already exists; please choose another project name.")
+            QMessageBox.warning(self, "Project folder exists", "This project name maps to an existing project folder. Please choose another name.")
+            return
         class_default = sanitize_name(class_name or name)
         self.state = UIState(project_id=pid, project_name=name.strip(), created_at=datetime.now().isoformat(timespec="seconds"), class_name=class_default, project_mode=APP_MODE, saved_project=True)
         self.dirty_steps = [False] + [True] * (STEP_COUNT - 1)
@@ -3523,7 +3552,7 @@ class MainWindow(QMainWindow):
         if not state_path.exists():
             QMessageBox.warning(self, "Missing", "找不到專案設定。")
             return
-        base = asdict(UIState()); base.update(json.loads(state_path.read_text(encoding="utf-8")))
+        base = ui_state_data(json.loads(state_path.read_text(encoding="utf-8")))
         if len(base.get("completed_steps", [])) != STEP_COUNT:
             done = [True] + [False] * (STEP_COUNT - 1)
             old = base.get("completed_steps", [])
@@ -3599,14 +3628,17 @@ class MainWindow(QMainWindow):
         if not new_name:
             QMessageBox.warning(self, "Missing", "專案名稱不可空白。")
             return
-        if new_name.lower() == old_name.lower() and make_project_id(new_name) == pid:
+        if new_name.casefold() == old_name.casefold() and make_project_id(new_name) == pid:
             return
-        if new_name.lower() in self.all_project_names(exclude_id=pid):
+        if new_name.casefold() in self.all_project_names(exclude_id=pid):
             QMessageBox.warning(self, "專案名稱重複", "專案名稱不可重複，請重新命名。")
             return
         new_id = make_project_id(new_name)
         if not new_id:
             QMessageBox.warning(self, "Invalid", "專案名稱無法轉成有效資料夾名稱，請重新命名。")
+            return
+        if new_id in self.all_project_ids(exclude_id=pid):
+            QMessageBox.warning(self, "Project folder exists", "This project name maps to another existing project folder. Please choose another name.")
             return
         new_dir = self.projects_root / new_id
         if new_id != pid and new_dir.exists():
@@ -3657,8 +3689,7 @@ class MainWindow(QMainWindow):
         if getattr(self, "selected_project_card_id", "") == pid:
             self.selected_project_card_id = new_id
         if self.state.project_id == pid:
-            base = asdict(UIState())
-            base.update(data)
+            base = ui_state_data(data)
             self.state = UIState(**base)
             self.selected_project_card_id = new_id
             self.load_state_to_widgets()
@@ -3678,7 +3709,7 @@ class MainWindow(QMainWindow):
         n = 2
         while True:
             candidate_id = make_project_id(candidate)
-            if candidate.strip().lower() not in existing and not (self.projects_root / candidate_id).exists():
+            if candidate.strip().casefold() not in existing and not (self.projects_root / candidate_id).exists():
                 return candidate
             candidate = f"{base_name}{n}"
             n += 1
@@ -3705,8 +3736,7 @@ class MainWindow(QMainWindow):
         if not src.exists() or not state_path.exists():
             QMessageBox.warning(self, "Missing", "找不到要複製的專案。")
             return
-        base = asdict(UIState())
-        base.update(json.loads(state_path.read_text(encoding="utf-8")))
+        base = ui_state_data(json.loads(state_path.read_text(encoding="utf-8")))
         source_name = str(base.get("project_name") or pid)
         new_name = self.make_duplicate_project_name(source_name)
         new_id = make_project_id(new_name)
@@ -3786,7 +3816,7 @@ class MainWindow(QMainWindow):
         if not self.state.project_id:
             QMessageBox.warning(self, "Missing", "目前沒有可儲存的專案。")
             return
-        if self.state.project_name.strip().lower() in self.all_project_names(exclude_id=self.state.project_id):
+        if self.state.project_name.strip().casefold() in self.all_project_names(exclude_id=self.state.project_id):
             self.show_project_error("專案名稱不可重複，請重新命名。")
             QMessageBox.warning(self, "專案名稱重複", "專案名稱不可重複，請重新命名。")
             return
