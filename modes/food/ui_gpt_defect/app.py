@@ -2550,7 +2550,7 @@ class MainWindow(QMainWindow):
         st = state or self.state
         preferred = [sanitize_name(st.class_name or ""), sanitize_name(st.project_name or ""), sanitize_name(st.project_id or "")]
         for pdir in self.candidate_project_dirs(st):
-            cfg_root = pdir / "configs" / "classes"
+            cfg_root = pdir / "data" / "01_inputs"
             for cname in preferred:
                 if cname:
                     prompt = cfg_root / cname / "prompt.txt"
@@ -2651,8 +2651,13 @@ class MainWindow(QMainWindow):
     def target_masks_dir(self) -> Path:
         return self.project_dir() / "data" / "01_inputs" / self.class_name() / "target_area_masks"
 
+    def class_config_dir(self) -> Path:
+        # Per-class working files (prompt, crop records, selection) live under the
+        # retained data/ tree, so the project folder no longer needs a configs/ folder.
+        return self.project_dir() / "data" / "01_inputs" / self.class_name()
+
     def prompt_path(self) -> Path:
-        return self.project_dir() / "configs" / "classes" / self.class_name() / "prompt.txt"
+        return self.class_config_dir() / "prompt.txt"
 
     def runs_dir(self) -> Path:
         # No <class_name> folder layer: each run folder lives directly under runs/.
@@ -4264,7 +4269,7 @@ class MainWindow(QMainWindow):
 
     def init_workspace_silent(self) -> None:
         # UI-managed workspace: keep all user products inside project/<project_name>/.
-        for d in [self.raw_dir(), self.inputs_dir(), self.regions_dir(), self.masks_dir(), self.target_masks_dir(), self.runs_dir(), self.prompt_path().parent, self.exports_dir()]:
+        for d in [self.raw_dir(), self.inputs_dir(), self.regions_dir(), self.masks_dir(), self.target_masks_dir(), self.runs_dir(), self.prompt_path().parent]:
             ensure_dir(d)
         self.save_state()
 
@@ -4306,7 +4311,7 @@ class MainWindow(QMainWindow):
 
     # ---------- crop ----------
     def crop_record_json_path(self) -> Path:
-        return self.project_dir() / "configs" / "classes" / self.class_name() / "crop_records.json"
+        return self.class_config_dir() / "crop_records.json"
 
     def load_crop_record(self, crop_path: Path) -> dict:
         stem = crop_path.stem
@@ -4606,7 +4611,7 @@ class MainWindow(QMainWindow):
 
         ensure_dir(self.inputs_dir())
         ensure_dir(self.inputs_dir().parent / "crop_records")
-        cfg_dir = ensure_dir(self.project_dir()/"configs"/"classes"/self.class_name())
+        cfg_dir = ensure_dir(self.class_config_dir())
         cfg_path = cfg_dir/"crop_records.json"
         try:
             records = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
@@ -4669,7 +4674,7 @@ class MainWindow(QMainWindow):
             if ret != QMessageBox.StandardButton.Yes:
                 return False
         self.clear_downstream_generation_artifacts(clear_inputs=True, clear_runs_exports=False)
-        cfg_dir = ensure_dir(self.project_dir()/"configs"/"classes"/self.class_name())
+        cfg_dir = ensure_dir(self.class_config_dir())
         records: dict[str, dict] = {}
         for src in raws:
             try:
@@ -4740,7 +4745,7 @@ class MainWindow(QMainWindow):
                 f"crop_size: {rect[2]-rect[0]},{rect[3]-rect[1]}\n"
             )
             (self.inputs_dir().parent/"crop_records"/f"{out.stem}.txt").write_text(rec_text, encoding="utf-8")
-            cfg_dir = ensure_dir(self.project_dir()/"configs"/"classes"/self.class_name())
+            cfg_dir = ensure_dir(self.class_config_dir())
             cfg_path = cfg_dir/"crop_records.json"
             try:
                 data = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
@@ -4864,7 +4869,7 @@ class MainWindow(QMainWindow):
                     if q.exists(): q.unlink()
                 except Exception:
                     pass
-            cfg_path = self.project_dir()/"configs"/"classes"/self.class_name()/"crop_records.json"
+            cfg_path = self.class_config_dir()/"crop_records.json"
             if cfg_path.exists():
                 try:
                     data=json.loads(cfg_path.read_text(encoding="utf-8")); data.pop(stem, None); cfg_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -4936,7 +4941,7 @@ class MainWindow(QMainWindow):
         return [p for p in all_paths if p.stem in allowed]
 
     def selected_region_stems_file(self) -> Path:
-        return ensure_dir(self.project_dir() / "configs" / "classes" / self.class_name()) / "selected_region_stems.txt"
+        return ensure_dir(self.class_config_dir()) / "selected_region_stems.txt"
 
     def write_selected_region_stems_file(self) -> Path:
         paths = self.selected_region_image_paths()

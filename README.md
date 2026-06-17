@@ -176,12 +176,16 @@ Useful shortcuts in this step include:
 - Use Ctrl/Shift multi-select; the UI limits a batch to at most 16 groups.
 - Edit a custom prompt or apply a template.
 - The final prompt is no longer combined with ROI / Target Area coordinate text. ROI and Target Area positions are provided visually through a second annotation-reference input image during generation.
-- Prompt configuration is stored under:
+- Prompt configuration is stored under the project's `data/` tree (the project folder
+  no longer creates a separate `configs/` folder):
 
 ```text
-modes/defect/project_defect/<project_name>/configs/classes/<class_name>/prompt.txt
-modes/food/project_food/<project_name>/configs/classes/<class_name>/prompt.txt
+modes/defect/project_defect/<project_name>/data/01_inputs/<class_name>/prompt.txt
+modes/food/project_food/<project_name>/data/01_inputs/<class_name>/prompt.txt
 ```
+
+The per-class crop records (`crop_records.json`) and the final group selection
+(`selected_region_stems.txt`) are stored in the same `data/01_inputs/<class_name>/` folder.
 
 ### Step 6: Model Parameters
 
@@ -278,6 +282,12 @@ Runtime artifacts are intentionally ignored by Git:
 
 This keeps uploaded images, generated outputs, masks, logs, API keys, and temporary
 exports out of source control.
+
+Each project folder no longer creates `configs/` or `exports/` subfolders: per-class
+working files live under `data/`, generation outputs live under `runs/`, and Export
+writes straight to a user-chosen path. A project folder therefore contains only
+`data/`, `runs/`, `logs/`, and `project_state.json`. (The `configs/`/`exports/` Git
+ignore entries are kept for backward compatibility with older projects.)
 
 The main source files are:
 
