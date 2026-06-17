@@ -295,11 +295,9 @@ The main source files are:
 launch_ui.py                  # UI launcher
 ui_gpt_defect/app.py          # Single-window mode selector / mode host
 modes/defect/ui_gpt_defect/   # Defect workflow UI
-modes/defect/scripts/         # Defect generation/export helpers
-modes/defect/tools/           # Defect image/mask editor utilities
+modes/defect/scripts/         # Defect generation helpers (batch_from_folders, run_gpt_image2, verify_env)
 modes/food/ui_gpt_defect/     # Food workflow UI
-modes/food/scripts/           # Food generation/export helpers
-modes/food/tools/             # Food image/mask editor utilities
+modes/food/scripts/           # Food generation helpers (batch_from_folders, run_gpt_image2, verify_env)
 ```
 
 ---

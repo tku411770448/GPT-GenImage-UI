@@ -344,7 +344,7 @@ def main() -> None:
     target_area_dir = args.target_area_dir or root / "data" / "01_inputs" / defect_type / "target_area_masks"
 
     if not images_dir.exists():
-        raise SystemExit(f"Images folder not found: {images_dir}\nRun: python scripts/init_defect_type.py --class-name {defect_type}")
+        raise SystemExit(f"Images folder not found: {images_dir}\nPlease prepare inputs in the UI (Step 2 upload and Step 3 crop / use original) before generating.")
 
     images = list_images(images_dir)
     if args.selected_stems_file and args.selected_stems_file.exists():
