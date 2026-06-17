@@ -2861,7 +2861,8 @@ class MainWindow(QMainWindow):
         self.project_error = QLabel(""); self.project_error.setObjectName("DangerText"); self.project_error.setVisible(False); lay.addWidget(self.project_error)
 
         cards_box = QGroupBox("Projects")
-        cards_box.setMinimumHeight(360)
+        # Tall enough to show two rows of project cards without scrolling.
+        cards_box.setMinimumHeight(560)
         cards_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         cards_lay = QVBoxLayout(cards_box)
         cards_lay.setContentsMargins(14, 18, 14, 14)
@@ -2871,12 +2872,12 @@ class MainWindow(QMainWindow):
         self.project_cards_container = QWidget(); self.project_cards_layout = QGridLayout(self.project_cards_container)
         self.project_cards_layout.setContentsMargins(0, 0, 0, 0); self.project_cards_layout.setSpacing(18)
         self.project_cards_layout.setColumnStretch(0, 1); self.project_cards_layout.setColumnStretch(1, 1); self.project_cards_layout.setColumnStretch(2, 1)
-        self.project_cards_scroll = QScrollArea(); self.project_cards_scroll.setWidgetResizable(True); self.project_cards_scroll.setFrameShape(QFrame.NoFrame); self.project_cards_scroll.setMinimumHeight(260); self.project_cards_scroll.setWidget(self.project_cards_container)
+        self.project_cards_scroll = QScrollArea(); self.project_cards_scroll.setWidgetResizable(True); self.project_cards_scroll.setFrameShape(QFrame.NoFrame); self.project_cards_scroll.setMinimumHeight(470); self.project_cards_scroll.setWidget(self.project_cards_container)
         cards_lay.addWidget(self.project_cards_scroll, 1)
         lay.addWidget(cards_box, 3)
 
         self.project_summary = QTextEdit(); self.project_summary.setReadOnly(True)
-        self.project_summary.setMinimumHeight(220)
+        self.project_summary.setMinimumHeight(150)
         self.project_summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         lay.addWidget(self.project_summary, 1)
         return self.wrap_page(0, lay)
@@ -3304,7 +3305,8 @@ class MainWindow(QMainWindow):
             #ProjectCard { background: #ffffff; border: 2px solid #cbd5e1; border-radius: 18px; padding: 0px; }
             #ProjectCard[mode="defect"] { border: 3px solid #10b981; }
             #ProjectCard[mode="food"] { border: 3px solid #2563eb; }
-            #ProjectCard:hover { border: 3px solid #3b82f6; background: #f8fbff; }
+            #ProjectCard[mode="defect"]:hover { border: 3px solid #10b981; background: #f0fdf9; }
+            #ProjectCard[mode="food"]:hover { border: 3px solid #2563eb; background: #f8fbff; }
             #ProjectCard[mode="defect"][selected="true"] { border: 4px solid #047857; }
             #ProjectCard[mode="food"][selected="true"] { border: 4px solid #1e40af; }
             #ActiveProjectLabel { background: #e0f2fe; color: #0f172a; border: 1px solid #93c5fd; border-radius: 12px; padding: 10px 14px; font-weight: 700; }
