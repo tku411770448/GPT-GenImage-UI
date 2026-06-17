@@ -219,6 +219,9 @@ files are explicitly kept.
   `Step 8` while keeping compatible internal state indexes.
 - Exports the current run or all runs for the class. Selecting all runs writes a
   merged `all_runs` export folder for that class.
+- In the export-planning panel, the export-scope dropdown shares the top row with the
+  refresh button; the COCO and YOLO format checkboxes are stacked directly beneath the
+  dropdown.
 - Writes normalized output folders under:
 
 ```text

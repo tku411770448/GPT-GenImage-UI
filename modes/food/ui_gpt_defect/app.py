@@ -3080,7 +3080,10 @@ class MainWindow(QMainWindow):
         self.yolo_check=QCheckBox("匯出 YOLO 格式：yolo/labels/*.txt（空白）+ yolo/data.yaml"); self.yolo_check.setChecked(self.state.export_yolo)
         refresh=QPushButton("重新整理輸出"); refresh.clicked.connect(self.safe_action("refresh_outputs", lambda: self.refresh_outputs(auto_select=True)))
         g.addWidget(QLabel("匯出範圍"),0,0); g.addWidget(self.export_scope_combo,0,1); g.addWidget(refresh,0,2)
-        g.addWidget(self.coco_check,1,0,1,2); g.addWidget(self.yolo_check,1,2)
+        # COCO and YOLO export-format checkboxes are stacked directly below the
+        # 匯出範圍 (export scope) dropdown, in the left column.
+        g.addWidget(self.coco_check,1,0,1,2)
+        g.addWidget(self.yolo_check,2,0,1,2)
         lay.addWidget(box,0)
 
         mid=QHBoxLayout(); mid.setSpacing(12)
