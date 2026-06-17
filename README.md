@@ -72,7 +72,7 @@ again.
 ```mermaid
 flowchart TD
     Z[Step 0 Mode Selection\nChoose Gen Defect or Gen Food]
-    A[Step 1 Homepage / Project Management\nCreate/open/copy/delete project\nSet shared OpenAI API key\nSet Class Name when creating a project]
+    A[Step 1 Homepage / Project Management\nCreate/open/duplicate/delete project\nSet shared OpenAI API key\nSet Class Name when creating a project]
     B[Step 2 Data Upload\nImport or drag source images]
     C[Step 3 Crop / Use Original\nChoose original images or crop fixed-size inputs]
     D[Step 4 ROI / Target Area\nDraw ROI and allowed generation areas]
@@ -104,7 +104,9 @@ step indexes for compatibility with existing project state files.
 
 - Create a new project with both `Project Name` and `Class Name`.
 - Save or replace the shared `OPENAI_API_KEY` used by all projects.
-- Open, copy, or delete existing project cards.
+- Open, duplicate, or delete existing project cards.
+- Duplicating a project copies its project state and class workspace artifacts so the
+  new card opens with the same existing content.
 - Project names must be unique.
 - Reopening a project returns to the mode homepage while preserving completed-step state and
   existing artifacts.
@@ -212,16 +214,20 @@ files are explicitly kept.
 
 ### Step 9: Export
 
-- Exports the current run or all runs for the class.
+- Defect mode shows this page as `Step 9`; food mode shows its final export page as
+  `Step 8` while keeping compatible internal state indexes.
+- Exports the current run or all runs for the class. Selecting all runs writes a
+  merged `all_runs` export folder for that class.
 - Writes normalized output folders under:
 
 ```text
 modes/defect/project_defect/<project_name>/exports/<class_name>/<run_name>/
 modes/food/project_food/<project_name>/exports/<class_name>/<run_name>/
+modes/defect/project_defect/<project_name>/exports/<class_name>/all_runs/
+modes/food/project_food/<project_name>/exports/<class_name>/all_runs/
 ```
 
 - Can copy generated images and create COCO / YOLO annotation files.
-- Can optionally package artifacts into a zip file in a user-selected local folder.
 - Export bounding boxes are scaled back to the final exported image coordinate system.
 
 ---

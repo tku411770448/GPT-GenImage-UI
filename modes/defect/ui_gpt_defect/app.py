@@ -5,8 +5,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
-import zipfile
 import sys
 import uuid
 import urllib.request
@@ -76,7 +74,7 @@ class ReliableSpinBox(QSpinBox):
     their mouse hit area unreliable after global QSS padding is applied. This
     class keeps normal QSpinBox behavior for text editing and keyboard input,
     but explicitly handles left-clicks in the arrow area so values always step
-    by one. It is used by Step 6 output count and Step 9 YOLO class id.
+    by one. It is used by Step 6 output count.
     """
 
     def __init__(self, parent=None):
@@ -1905,7 +1903,6 @@ class UIState:
     export_coco: bool = True
     export_yolo: bool = True
     export_copy_images: bool = True
-    export_class_id: int = 0
     last_export_zip: str = ""
     last_export_dir: str = ""
     estimated_run_cost_usd: float = 0.0
@@ -2034,7 +2031,7 @@ class MainWindow(QMainWindow):
         6: [("gpt-image-2 輸出尺寸限制：寬高皆需為 16 的倍數、長邊不可超過 3840 px、長寬比不可超過 3:1、總像素需介於 655,360 px～8,294,400 px。", True), ("已恢復正式檢查：按『確認參數並估算本次成本』時，無論是『自訂尺寸』或『與原圖尺寸相同』，只要低於下界、高於上界或比例不合規，都會跳出提示並阻止進入下一步。", True), ("例如 640×640 = 409,600 px，低於最低總像素限制；5472×3648 長邊超過 3840 px 且總像素過高。成本預估會嘗試讀取 OpenAI Pricing；實際金額仍以 API usage / 帳單為準。", False)],
         7: [("Aggregate 會即時顯示目前重點設定。確認內容無誤後按 Submit 進入正式生成。", False)],
         8: [("生成期間會鎖定其他 Step，避免生成中被修改設定。", False), ("重新開始生成不會清除舊資料；系統會依 Step 6 的 Run name 自動建立新資料夾，例如 run1、run2、run3，避免覆蓋已完成圖片。從上次進度開始生成會沿用目前 Run name 並加入 --resume-existing。", True), ("若設定輸出 500 張，批次程式會分配到選定圖像後逐張呼叫後端；目前每張輸出由 run_gpt_image2.py 以 n=1 呼叫一次 OpenAI Image Edit API，因此通常是 500 次 API edit 呼叫。", True), ("Step 8 每次 API 輸入包含原始/裁切輸入圖、Image 2 標註參考圖、prompt、model、size、quality 等參數；reference-guided-edit 不把 ROI/Target Area 當 API mask。", False), ("正式生成會消耗 API 額度。", True)],
-        9: [("Submit 會整理目前 run 到 exports/<Class>/<Run name>/；Optional zip 可額外輸出到指定本地資料夾。", False), ("已移除自動標註：YOLO labels 會保留空白 .txt，COCO 的 annotations 會是空陣列；若需要訓練標註，請另外人工標註或匯入可信標註結果。", True), ("若同一 export run 已存在，會先清除後重建，避免資料重疊。", True)],
+        9: [("Export 會整理目前 run 到 exports/<Class>/<Run name>/；選擇全部 runs 時會合併到 exports/<Class>/all_runs/。", False), ("已移除自動標註：YOLO labels 會保留空白 .txt，COCO 的 annotations 會是空陣列；若需要訓練標註，請另外人工標註或匯入可信標註結果。", True), ("若同一 export run 已存在，會先清除後重建，避免資料重疊。", True)],
     }
 
     def __init__(self) -> None:
@@ -2655,14 +2652,14 @@ class MainWindow(QMainWindow):
             item = content_layout.takeAt(0)
             if item.widget(): body_lay.addWidget(item.widget())
             elif item.layout(): body_lay.addLayout(item.layout())
-        if step_idx not in {0, 2, 3, 4, 7, 8}:
+        if step_idx not in {0, 2, 3, 4, 7, 8, 9}:
             body_lay.addStretch(1)
         scroll = QScrollArea(); scroll.setObjectName("PageScroll"); scroll.setAcceptDrops(True); scroll.viewport().setAcceptDrops(True); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame); scroll.setWidget(body)
         page_lay.addWidget(scroll, 1)
         footer = QHBoxLayout(); footer.setSpacing(10)
         help_btn = QPushButton(self.TR["help"]); help_btn.setObjectName("HelpButton"); help_btn.clicked.connect(self.safe_action(f"show_help_{step_idx}", lambda: self.show_help(step_idx)))
         back_btn = QPushButton(self.TR["back"]); back_btn.clicked.connect(self.safe_action("go_back", self.go_back))
-        submit_btn = QPushButton(self.TR["submit"]); submit_btn.setObjectName("SubmitButton"); submit_btn.clicked.connect(self.safe_action(f"submit_step_{step_idx}", lambda: self.submit_step(step_idx)))
+        submit_btn = QPushButton("Export" if step_idx == 9 else self.TR["submit"]); submit_btn.setObjectName("SubmitButton"); submit_btn.clicked.connect(self.safe_action(f"submit_step_{step_idx}", lambda: self.submit_step(step_idx)))
         self.footer_buttons[step_idx] = {"help": help_btn, "back": back_btn, "submit": submit_btn}
         footer.addWidget(help_btn); footer.addStretch(1); footer.addWidget(back_btn)
         if step_idx == 3:
@@ -2671,6 +2668,14 @@ class MainWindow(QMainWindow):
             use_all_original_btn.clicked.connect(self.safe_action("use_all_original_images_and_go_step4", self.use_all_original_images_and_go_step4))
             self.footer_buttons[step_idx]["use_original_all"] = use_all_original_btn
             footer.addWidget(use_all_original_btn)
+        if step_idx == 9:
+            home_btn = QPushButton("回首頁")
+            home_btn.setObjectName("PrimaryButton")
+            home_btn.setMinimumWidth(118)
+            home_btn.clicked.connect(self.safe_action("go_home_from_export", self.go_home_from_export))
+            self.footer_buttons[step_idx]["home"] = home_btn
+            footer.addWidget(home_btn)
+            submit_btn.setMinimumWidth(132)
         footer.addWidget(submit_btn)
         page_lay.addLayout(footer)
         return page
@@ -3076,23 +3081,9 @@ class MainWindow(QMainWindow):
         return self.wrap_page(8, lay)
 
     def page_export(self) -> QWidget:
-        lay=QVBoxLayout(); lay.addWidget(self.header("Step 9｜Export / 輸出資料整理", "檢視生成圖；Submit 會整理至 exports/<Class>/<Run name>，也可額外打包 .zip 到指定路徑。"))
-        top=QHBoxLayout(); refresh=QPushButton("重新整理輸出"); refresh.clicked.connect(self.safe_action("refresh_outputs", lambda: self.refresh_outputs(auto_select=True))); top.addWidget(refresh); top.addStretch(1); lay.addLayout(top)
+        lay=QVBoxLayout(); lay.addWidget(self.header("Step 9｜Export / 輸出資料整理", "檢視生成圖；按 Export 會整理至 exports/<Class>/<Run name> 或 all_runs。"))
 
-        mid=QHBoxLayout(); mid.setSpacing(12)
-        out_box=QGroupBox("欲輸出圖片")
-        out_box.setMaximumWidth(310)
-        out_box.setMinimumWidth(250)
-        out_lay=QVBoxLayout(out_box); out_lay.setContentsMargins(8, 10, 8, 8)
-        self.output_list=OutputThumbList(); self.output_list.selected_path_changed.connect(self.safe_action("preview_output_selection", self.preview_output_selection))
-        out_lay.addWidget(self.output_list,1)
-        mid.addWidget(out_box,0)
-        self.output_preview=ImagePreview("尚無預覽")
-        self.output_preview.setMinimumSize(720, 420)
-        mid.addWidget(self.output_preview,1)
-        lay.addLayout(mid,2)
-
-        box=QGroupBox("Export 規劃"); g=QGridLayout(box); g.setColumnStretch(0,1); g.setColumnStretch(1,1)
+        box=QGroupBox("Export 規劃"); g=QGridLayout(box); g.setColumnStretch(0,1); g.setColumnStretch(1,1); g.setColumnStretch(2,0)
         self.export_scope_combo=QComboBox(); self.export_scope_combo.addItems(["目前 run（依 Run name）", "全部 runs（包含歷次 runs）"])
         # Backward-compatible load: older projects only had export_latest_only.
         if getattr(self.state, "export_scope", "current") == "all" or (hasattr(self.state, "export_latest_only") and not self.state.export_latest_only):
@@ -3100,18 +3091,26 @@ class MainWindow(QMainWindow):
         else:
             self.export_scope_combo.setCurrentText("目前 run（依 Run name）")
         self.export_scope_combo.currentTextChanged.connect(self.safe_slot("export_scope_changed", lambda *_: (self.update_state_from_widgets(), self.refresh_outputs(auto_select=True))))
-        self.coco_check=QCheckBox("匯出 COCO：coco/annotations/coco.json（不自動標註）"); self.coco_check.setChecked(self.state.export_coco)
-        self.yolo_check=QCheckBox("匯出 YOLO：yolo/labels/*.txt（空白）+ yolo/data.yaml"); self.yolo_check.setChecked(self.state.export_yolo)
-        self.class_id_spin=ReliableSpinBox(); self.class_id_spin.setRange(0,9999); self.class_id_spin.setValue(self.state.export_class_id); self.class_id_spin.setToolTip("YOLO class id：可手動輸入，也可使用右側上下箭頭調整。")
-        export_btn=QPushButton("打包成 .zip 並輸出至指定路徑（Optional）"); export_btn.setObjectName("PrimaryButton"); export_btn.clicked.connect(self.safe_action("export_dataset", lambda: self.export_dataset(show_message=True, make_zip=True)))
-        home_btn=QPushButton("回首頁"); home_btn.setObjectName("PrimaryButton"); home_btn.clicked.connect(self.safe_action("go_home_from_export", self.go_home_from_export))
-        self.home_from_export_btn=home_btn
-        g.addWidget(QLabel("匯出範圍"),0,0); g.addWidget(self.export_scope_combo,0,1)
-        g.addWidget(self.coco_check,1,0); g.addWidget(self.yolo_check,1,1)
-        g.addWidget(QLabel("YOLO class id"),2,0); g.addWidget(self.class_id_spin,2,1)
-        g.addWidget(export_btn,3,0,1,2)
-        g.addWidget(home_btn,4,0,1,2)
+        self.coco_check=QCheckBox("匯出 COCO 格式：coco/annotations/coco.json（不自動標註）"); self.coco_check.setChecked(self.state.export_coco)
+        self.yolo_check=QCheckBox("匯出 YOLO 格式：yolo/labels/*.txt（空白）+ yolo/data.yaml"); self.yolo_check.setChecked(self.state.export_yolo)
+        refresh=QPushButton("重新整理輸出"); refresh.clicked.connect(self.safe_action("refresh_outputs", lambda: self.refresh_outputs(auto_select=True)))
+        g.addWidget(QLabel("匯出範圍"),0,0); g.addWidget(self.export_scope_combo,0,1); g.addWidget(refresh,0,2)
+        g.addWidget(self.coco_check,1,0,1,2); g.addWidget(self.yolo_check,1,2)
         lay.addWidget(box,0)
+
+        mid=QHBoxLayout(); mid.setSpacing(12)
+        out_box=QGroupBox("欲輸出圖片")
+        out_box.setMaximumWidth(360)
+        out_box.setMinimumWidth(280)
+        out_lay=QVBoxLayout(out_box); out_lay.setContentsMargins(8, 10, 8, 8)
+        self.output_list=OutputThumbList(); self.output_list.selected_path_changed.connect(self.safe_action("preview_output_selection", self.preview_output_selection))
+        out_lay.addWidget(self.output_list,1)
+        mid.addWidget(out_box,0)
+        self.output_preview=ImagePreview("尚無預覽")
+        self.output_preview.setMinimumSize(900, 560)
+        self.output_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        mid.addWidget(self.output_preview,1)
+        lay.addLayout(mid,1)
         return self.wrap_page(9, lay)
 
     # ---------- style ----------
@@ -3771,14 +3770,13 @@ class MainWindow(QMainWindow):
         shutil.copytree(src, dst)
 
         src_class = sanitize_name(base.get("class_name") or source_name)
-        dst_class = sanitize_name(new_name)
-        self.copy_class_workspace(src_class, dst_class)
+        self.copy_class_workspace(src_class, src_class)
 
         new_state_path = dst / "project_state.json"
         now_iso = datetime.now().isoformat(timespec="seconds")
         base["project_id"] = new_id
         base["project_name"] = new_name
-        base["class_name"] = dst_class
+        base["class_name"] = src_class
         base["created_at"] = now_iso
         base["saved_project"] = True
         # Duplicate means a full copy of the project, not a reset/new-project flow.
@@ -3795,7 +3793,7 @@ class MainWindow(QMainWindow):
         projects.append({
             "id": new_id,
             "name": new_name,
-            "class_name": dst_class,
+            "class_name": src_class,
             "mode": APP_MODE,
             "model": base.get("model", "-"),
             "quality": base.get("quality", "-"),
@@ -3934,7 +3932,7 @@ class MainWindow(QMainWindow):
             # Keep older state fields in sync for backward compatibility.
             self.state.export_latest_only = (self.state.export_scope != "all")
             self.state.export_copy_images = True
-            self.state.export_coco = self.coco_check.isChecked(); self.state.export_yolo = self.yolo_check.isChecked(); self.state.export_class_id = self.class_id_spin.value()
+            self.state.export_coco = self.coco_check.isChecked(); self.state.export_yolo = self.yolo_check.isChecked()
 
     def first_unfinished_step(self) -> int:
         for i, done in enumerate(self.state.completed_steps):
@@ -4126,8 +4124,7 @@ class MainWindow(QMainWindow):
         return True
 
     def submit_export(self) -> bool:
-        # Submit always writes the normalized, unzipped export folder under exports/<class>/<run_name>.
-        return self.export_dataset(show_message=False, make_zip=False)
+        return self.export_dataset(show_message=False)
 
     # ---------- Step 1 setup ----------
     def verify_environment(self) -> None:
@@ -5766,7 +5763,6 @@ class MainWindow(QMainWindow):
             sys.executable, str(self.root/"scripts"/"export_dataset.py"),
             "--class-name", self.state.class_name,
             "--runs-root", str(self.runs_dir()),
-            "--class-id", str(self.state.export_class_id),
             "--export-root", str(export_dir),
             "--copy-images",
         ]
@@ -5787,65 +5783,7 @@ class MainWindow(QMainWindow):
             cmd.append("--yolo")
         return subprocess.run(cmd, cwd=self.root, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
 
-    def _write_clean_artifacts_zip(self, export_dir: Path, zip_path: Path) -> None:
-        """Package Step 9 deliverables while preserving the separated yolo/ and coco/ layout."""
-        zip_path = zip_path if zip_path.suffix.lower() == ".zip" else zip_path.with_suffix(".zip")
-        if zip_path.exists():
-            zip_path.unlink()
-        safe_class = re.sub(r"[^0-9A-Za-z_.\-\u4e00-\u9fff]+", "_", self.state.class_name.strip()).strip("_") or "class"
-        top = Path(safe_class)
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            wrote_format = False
-            if self.state.export_yolo:
-                wrote_format = True
-                yolo_dir = export_dir / "yolo"
-                # New separated layout.
-                if yolo_dir.exists():
-                    for p in sorted(yolo_dir.rglob("*")):
-                        if p.is_file():
-                            zf.write(p, top / "yolo" / p.relative_to(yolo_dir))
-                else:
-                    # Backward-compatible fallback for old temporary exports.
-                    images_dir = export_dir / "images"
-                    labels_dir = export_dir / "labels"
-                    for img in sorted(images_dir.glob("*")) if images_dir.exists() else []:
-                        if img.is_file():
-                            zf.write(img, top / "yolo" / "images" / img.name)
-                    for lab in sorted(labels_dir.glob("*.txt")) if labels_dir.exists() else []:
-                        zf.write(lab, top / "yolo" / "labels" / lab.name)
-                    yolo_yaml = export_dir / "data.yaml"
-                    if yolo_yaml.exists():
-                        zf.write(yolo_yaml, top / "yolo" / "data.yaml")
-                    else:
-                        zf.writestr(str(top / "yolo" / "data.yaml"), f"train: images\nval: images\nnames:\n  {int(self.state.export_class_id)}: {self.state.class_name}\n")
-            if self.state.export_coco:
-                wrote_format = True
-                coco_dir = export_dir / "coco"
-                # New separated layout.
-                if coco_dir.exists():
-                    for p in sorted(coco_dir.rglob("*")):
-                        if p.is_file():
-                            zf.write(p, top / "coco" / p.relative_to(coco_dir))
-                else:
-                    # Backward-compatible fallback for old temporary exports.
-                    images_dir = export_dir / "images"
-                    coco_json = export_dir / "annotations" / "coco.json"
-                    for img in sorted(images_dir.glob("*")) if images_dir.exists() else []:
-                        if img.is_file():
-                            zf.write(img, top / "coco" / "images" / img.name)
-                    if coco_json.exists():
-                        zf.write(coco_json, top / "coco" / "annotations" / "coco.json")
-            if not wrote_format:
-                for img in sorted((export_dir / "images").glob("*")) if (export_dir / "images").exists() else []:
-                    if img.is_file():
-                        zf.write(img, top / "images" / img.name)
-            manifest = export_dir / "export_manifest.json"
-            if manifest.exists():
-                zf.write(manifest, top / "export_manifest.json")
-            log_text = (self.aggregate_log_path().read_text(encoding="utf-8") if self.aggregate_log_path().exists() else self.build_aggregate_text()) + "\n"
-            zf.writestr(str(top / "log.txt"), log_text)
-
-    def export_dataset(self, show_message: bool=True, make_zip: bool=False)->bool:
+    def export_dataset(self, show_message: bool=True)->bool:
         self.update_state_from_widgets()
         if not self.export_scope_is_all():
             self.current_run_name(create_if_empty=True)
@@ -5862,32 +5800,13 @@ class MainWindow(QMainWindow):
             self.log_box_append(proc.stdout+proc.stderr)
             self.state.last_export_dir=str(export_dir)
 
-            if make_zip:
-                default_dir=ensure_dir(self.exports_dir()).resolve()
-                folder=QFileDialog.getExistingDirectory(self,"選擇 .zip 匯出資料夾",str(default_dir)) if show_message else str(default_dir)
-                if not folder:
-                    # Optional zip was cancelled; keep the folder export that was already written.
-                    self.state.last_export_zip=""
-                    self.save_state(); self.refresh_outputs()
-                    if show_message:
-                        QMessageBox.information(self,"Done",f"已整理至預設資料夾：\n{export_dir}")
-                    return True
-                zip_name=f"Gen_{self.state.class_name}_{self.current_export_name()}.zip"
-                zip_path=Path(folder)/zip_name
-                zip_path=zip_path if zip_path.suffix.lower()==".zip" else zip_path.with_suffix(".zip")
-                ensure_dir(zip_path.parent)
-                self._write_clean_artifacts_zip(export_dir, zip_path)
-                self.state.last_export_zip=str(zip_path)
-            else:
-                self.state.last_export_zip=""
+            self.state.last_export_zip=""
 
             self.state.completed_steps[9] = True
             self.dirty_steps[9] = False
             self.save_state(); self.refresh_outputs(); self.update_step_buttons()
             if show_message:
                 msg=f"已整理至：\n{export_dir}"
-                if make_zip and self.state.last_export_zip:
-                    msg += f"\n\n已另外打包：\n{self.state.last_export_zip}"
                 QMessageBox.information(self,"Done",msg)
             return True
         except Exception as exc:
@@ -5896,30 +5815,6 @@ class MainWindow(QMainWindow):
             else:
                 detail=str(exc)
             QMessageBox.critical(self,"Export failed",self.scrub_text(detail)); return False
-
-    def download_artifacts(self)->None:
-        self.update_state_from_widgets()
-        if not self.find_run_metadata():
-            QMessageBox.warning(self,"Missing","尚未找到生成紀錄。")
-            return
-        default=str((ensure_dir(self.exports_dir())/f"Artifacts_{self.state.project_name or self.state.class_name}.zip").resolve())
-        zip_path_str,_=QFileDialog.getSaveFileName(self,"下載 Artifacts",default,"ZIP files (*.zip)")
-        if not zip_path_str:
-            return
-        zip_path=Path(zip_path_str); zip_path=zip_path if zip_path.suffix.lower()==".zip" else zip_path.with_suffix(".zip"); ensure_dir(zip_path.parent)
-        try:
-            with tempfile.TemporaryDirectory(prefix="gen_artifacts_", dir=ensure_dir(self.project_dir()/".tmp_exports")) as tmp:
-                export_dir=Path(tmp)/"dataset"
-                proc=self._run_export_to_temp(export_dir)
-                self.log_box_append(proc.stdout+proc.stderr)
-                self._write_clean_artifacts_zip(export_dir, zip_path)
-            QMessageBox.information(self,"Done","Artifacts 已打包完成。")
-        except Exception as exc:
-            if isinstance(exc,subprocess.CalledProcessError):
-                self.log_box_append((exc.stdout or "")+(exc.stderr or "")); detail=(exc.stderr or exc.stdout or str(exc))[-2000:]
-            else:
-                detail=str(exc)
-            QMessageBox.critical(self,"Artifacts failed",self.scrub_text(detail))
 
     def go_home_from_export(self)->None:
         """Return to Step 1 without deleting the current project or generated files."""
