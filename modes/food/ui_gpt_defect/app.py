@@ -5073,7 +5073,6 @@ class MainWindow(QMainWindow):
     def default_prompt_template(self) -> str:
         c = self.class_name()
         return (
-            f"這張圖的 Class Name 為 `{c}`\n"
             f"請根據 `{c}` 的位置進行食物圖像編輯。\n"
             f"可讓 `{c}` 出現自然的翻轉、旋轉、角度變化、擺放位置微調、份量或姿態差異。\n"
             "不要改動以外的背景、餐具、桌面、光照、相機角度與整體風格。\n"
