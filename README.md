@@ -220,8 +220,8 @@ files are explicitly kept.
 - Exports the current run or all runs for the class. Selecting all runs writes a
   merged `all_runs` export folder for that class.
 - In the export-planning panel, the export-scope dropdown shares the top row with the
-  refresh button; the COCO and YOLO format checkboxes are stacked directly beneath the
-  dropdown.
+  refresh button; the COCO format checkbox sits in the left column and the YOLO format
+  checkbox sits directly beneath the export-scope dropdown, on the same row as COCO.
 - Writes normalized output folders under:
 
 ```text
