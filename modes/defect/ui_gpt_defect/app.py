@@ -3223,21 +3223,20 @@ class MainWindow(QMainWindow):
         lay=QVBoxLayout(); lay.addWidget(self.header("Step 9｜Export / 輸出資料整理", "勾選要匯出的 runs，按『確認』預覽，再按『Export』選擇路徑匯出。"))
 
         box=QGroupBox("Export 規劃"); g=QGridLayout(box)
-        g.setColumnStretch(0,0); g.setColumnStretch(1,1); g.setColumnStretch(2,0); g.setColumnStretch(3,0); g.setColumnStretch(4,0)
+        g.setColumnStretch(0,0); g.setColumnStretch(1,1); g.setColumnStretch(2,0)
         self.export_runs_combo=CheckableRunCombo(); self.export_runs_combo.setMinimumWidth(360)
-        refresh=QPushButton("重新整理輸出"); refresh.clicked.connect(self.safe_action("refresh_export_runs", lambda: self.refresh_outputs(auto_select=True)))
-        confirm_btn=QPushButton("確認"); confirm_btn.setObjectName("PrimaryButton")
+        confirm_btn=QPushButton("確認"); confirm_btn.setObjectName("PrimaryButton"); confirm_btn.setMinimumWidth(120)
         confirm_btn.clicked.connect(self.safe_action("preview_selected_runs", self.load_selected_runs_preview))
         export_btn=QPushButton("Export"); export_btn.setObjectName("SubmitButton"); export_btn.setMinimumWidth(120)
         export_btn.clicked.connect(self.safe_action("submit_step_9", lambda: self.submit_step(9)))
         self.export_run_btn=export_btn
         self.zip_check=QCheckBox("打包成 .zip"); self.zip_check.setChecked(True)
+        # 確認 (top) and Export (bottom) are stacked vertically in the right column.
         g.addWidget(QLabel("匯出範圍"),0,0)
         g.addWidget(self.export_runs_combo,0,1)
-        g.addWidget(refresh,0,2)
-        g.addWidget(confirm_btn,0,3)
-        g.addWidget(export_btn,0,4)
+        g.addWidget(confirm_btn,0,2)
         g.addWidget(self.zip_check,1,0,1,2)
+        g.addWidget(export_btn,1,2)
         lay.addWidget(box,0)
 
         mid=QHBoxLayout(); mid.setSpacing(12)

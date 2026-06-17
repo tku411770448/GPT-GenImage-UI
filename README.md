@@ -241,10 +241,11 @@ runs/<run_name>/prompt.txt                  # the prompt actually sent for this 
 
 - Defect mode shows this page as `Step 9`; food mode shows its final export page as
   `Step 8` while keeping compatible internal state indexes.
-- The `Export 規劃` panel holds everything: an `匯出範圍` multi-select dropdown, a refresh
-  button, a `確認` (Confirm) button, the `Export` button, and a `打包成 .zip` checkbox
-  (checked by default). The COCO / YOLO format checkboxes and their export functionality
-  have been removed.
+- The `Export 規劃` panel holds everything: an `匯出範圍` multi-select dropdown, a `打包成 .zip`
+  checkbox (checked by default), and the `確認` (Confirm) and `Export` buttons stacked
+  vertically (Confirm on top, Export below) in the right column. The COCO / YOLO format
+  checkboxes and the standalone refresh button have been removed; the run list refreshes
+  automatically when the export step is opened.
 - `匯出範圍` is a checkable multi-select dropdown. It lists every run in the project by
   name plus a `全部 runs（包含歷次 runs）` option. Checking `全部 runs` selects all runs and
   disables the individual options (a forbidden cursor is shown while hovering them);
