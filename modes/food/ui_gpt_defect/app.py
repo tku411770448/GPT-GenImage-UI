@@ -885,6 +885,11 @@ class CheckableRunCombo(QComboBox):
         self.setModel(self._model)
         self._list_view = QListView()
         self.setView(self._list_view)
+        # Mouse tracking makes the popup deliver MouseMove on plain hover (no button
+        # pressed), so the forbidden / normal cursor updates the moment the pointer
+        # moves over a row instead of only after a click.
+        self._list_view.setMouseTracking(True)
+        self._list_view.viewport().setMouseTracking(True)
         self.setEditable(True)
         self.lineEdit().setReadOnly(True)
         self.lineEdit().setPlaceholderText("選擇要匯出的 runs")
@@ -946,6 +951,11 @@ class CheckableRunCombo(QComboBox):
                         it.setFlags(Qt.ItemIsUserCheckable)  # drop ItemIsEnabled -> not selectable
                     else:
                         it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+                # The rows' enabled state just changed; refresh the cursor for the row
+                # under the pointer right now, so it flips immediately even if the
+                # pointer has not moved since the toggle.
+                if self._list_view.isVisible():
+                    self._update_cursor_for_point(self._list_view.viewport().mapFromGlobal(QCursor.pos()))
             self._update_text()
         finally:
             self._guard = False
@@ -981,14 +991,18 @@ class CheckableRunCombo(QComboBox):
                         item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
                 return True  # keep the popup open for multi-select
             if event.type() == QEvent.MouseMove:
-                idx = self._list_view.indexAt(self._event_point(event))
-                forbidden = False
-                if idx.isValid():
-                    item = self._model.itemFromIndex(idx)
-                    if item is not None and not bool(item.flags() & Qt.ItemIsEnabled):
-                        forbidden = True
-                self._list_view.viewport().setCursor(Qt.ForbiddenCursor if forbidden else Qt.PointingHandCursor)
+                self._update_cursor_for_point(self._event_point(event))
         return super().eventFilter(obj, event)
+
+    def _update_cursor_for_point(self, pos) -> None:
+        """Forbidden cursor over disabled rows, pointing-hand otherwise."""
+        forbidden = False
+        idx = self._list_view.indexAt(pos)
+        if idx.isValid():
+            item = self._model.itemFromIndex(idx)
+            if item is not None and not bool(item.flags() & Qt.ItemIsEnabled):
+                forbidden = True
+        self._list_view.viewport().setCursor(Qt.ForbiddenCursor if forbidden else Qt.PointingHandCursor)
 
 
 class ProjectCard(QFrame):
