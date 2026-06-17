@@ -1722,10 +1722,8 @@ def main():
     #   --output-dir <root>/runs                  -> <root>/runs/<class>/<run_name>
     #   --output-dir <root>/runs/<class>          -> <root>/runs/<class>/<run_name>
     #   --output-dir <root>/runs/<class>/<batch>  -> <root>/runs/<class>/<batch>/<run_name>
-    if output_base.name == defect_type or output_base.parent.name == defect_type:
-        run_dir = ensure_dir(output_base / run_name)
-    else:
-        run_dir = ensure_dir(output_base / defect_type / run_name)
+    # No <class_name> folder layer: outputs go directly under output_base/run_name.
+    run_dir = ensure_dir(output_base / run_name)
 
     image.save(run_dir / "input.png")
     if repair_mask is not None:

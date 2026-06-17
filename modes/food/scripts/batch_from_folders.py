@@ -15,13 +15,22 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_gpt_image2 import SUPPORTED_GPT_IMAGE_MODELS, project_root, sanitize_defect_type, sanitize_name, sanitize_path_component
+from run_gpt_image2 import (
+    SUPPORTED_GPT_IMAGE_MODELS,
+    load_user_prompt,
+    project_root,
+    sanitize_defect_type,
+    sanitize_name,
+    sanitize_path_component,
+)
 
 SUPPORTED = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"]
 
@@ -143,6 +152,136 @@ def run_and_tee(cmd: list[str], log_path: Path) -> None:
             raise subprocess.CalledProcessError(return_code, cmd)
 
 
+def read_usage_from_metadata(meta_path: Path) -> tuple:
+    """Return (total_tokens, cost_usd) summed across api_calls in a run metadata file.
+
+    Returns empty strings when usage was not reported, so the spreadsheet cell stays
+    blank instead of showing a misleading zero."""
+    if not meta_path.exists():
+        return "", ""
+    try:
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "", ""
+    tokens_total = 0
+    cost_total = 0.0
+    have_tokens = False
+    have_cost = False
+    for call in data.get("api_calls", []) or []:
+        if not isinstance(call, dict):
+            continue
+        usage = call.get("usage") if isinstance(call.get("usage"), dict) else {}
+        tok = usage.get("total_tokens")
+        if tok is not None:
+            try:
+                tokens_total += int(tok)
+                have_tokens = True
+            except Exception:
+                pass
+        cost = call.get("estimated_cost_usd")
+        if cost is None:
+            cost = usage.get("estimated_cost_usd")
+        if cost is not None:
+            try:
+                cost_total += float(cost)
+                have_cost = True
+            except Exception:
+                pass
+    return (tokens_total if have_tokens else ""), (round(cost_total, 8) if have_cost else "")
+
+
+def find_final_image(work_dir: Path, base_name: str, ext: str) -> Path | None:
+    """Locate the final generated image inside a per-image work folder."""
+    direct = work_dir / f"{base_name}.{ext}"
+    if direct.exists():
+        return direct
+    meta_path = work_dir / "metadata.json"
+    if meta_path.exists():
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            for item in (data.get("final_outputs") or data.get("outputs") or []):
+                p = Path(str(item))
+                if not p.is_absolute():
+                    p = work_dir / p
+                if p.exists():
+                    return p
+        except Exception:
+            pass
+    for p in sorted(work_dir.glob(f"*.{ext}")):
+        stem = p.stem.lower()
+        if stem == "input" or "mask" in stem or "preview" in stem or "annotation" in stem:
+            continue
+        return p
+    return None
+
+
+SUMMARY_HEADER = ["原圖像名稱", "生成圖像名稱", "Total Token", "Cost($USD)"]
+
+
+def read_existing_summary(batch_output_root: Path) -> list:
+    """Read previously written summary rows (xlsx or csv) so resumed runs keep them."""
+    rows: list = []
+    xlsx = batch_output_root / "generation_summary.xlsx"
+    csv_path = batch_output_root / "generation_summary.csv"
+    if xlsx.exists():
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(xlsx, read_only=True, data_only=True)
+            ws = wb.active
+            for r in ws.iter_rows(min_row=2, values_only=True):
+                if r is None:
+                    continue
+                vals = list(r) + ["", "", "", ""]
+                rows.append(tuple(vals[:4]))
+            wb.close()
+            return rows
+        except Exception:
+            pass
+    if csv_path.exists():
+        try:
+            import csv
+            with open(csv_path, encoding="utf-8-sig", newline="") as fh:
+                reader = csv.reader(fh)
+                next(reader, None)
+                for r in reader:
+                    vals = list(r) + ["", "", "", ""]
+                    rows.append(tuple(vals[:4]))
+        except Exception:
+            pass
+    return rows
+
+
+def write_summary_table(batch_output_root: Path, rows: list) -> None:
+    """Write the per-image summary as Excel (.xlsx); fall back to .csv when openpyxl is missing."""
+    try:
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "summary"
+        ws.append(SUMMARY_HEADER)
+        for row in rows:
+            ws.append([row[0], row[1], row[2], row[3]])
+        wb.save(str(batch_output_root / "generation_summary.xlsx"))
+        stale_csv = batch_output_root / "generation_summary.csv"
+        if stale_csv.exists():
+            try:
+                stale_csv.unlink()
+            except Exception:
+                pass
+        return
+    except Exception as exc:
+        print(f"[WARN] openpyxl unavailable, writing CSV summary instead: {exc}", flush=True)
+    try:
+        import csv
+        with open(batch_output_root / "generation_summary.csv", "w", encoding="utf-8-sig", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(SUMMARY_HEADER)
+            for row in rows:
+                writer.writerow([row[0], row[1], row[2], row[3]])
+    except Exception as exc:
+        print(f"[WARN] could not write summary table: {exc}", flush=True)
+
+
 def main() -> None:
     root = project_root()
     p = argparse.ArgumentParser(description="Batch OpenAI GPT Image edits from data/01_inputs/<class_name>/ folders.")
@@ -253,94 +392,147 @@ def main() -> None:
     emitted = 0
     batch_run_name = make_batch_run_name(args.run_name)
     output_root = args.output_dir or root / "runs"
-    # Final structure: runs/<class_name>/<run_name>/<image_stem>_<timestamp>_<counter>/<artifacts>
-    batch_output_root = output_root / defect_type / batch_run_name
-    batch_output_root.mkdir(parents=True, exist_ok=True)
+    # New run layout (no <class_name> folder layer). runs/<run_name>/ holds:
+    #   Gen_Images/                        all generated images for this run
+    #   generation_summary.xlsx (or .csv)  per-image original/generated name, tokens, cost
+    #   prompt.txt                         the prompt actually sent to the API
+    batch_output_root = output_root / batch_run_name
+    gen_images_dir = batch_output_root / "Gen_Images"
+    gen_images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Capture the moment the user starts this generation step ONCE, and persist it
-    # so resuming the same batch reuses identical, non-overwriting child names. The
-    # year/month/day/hour/minute label stays fixed for every image in this batch;
-    # only the per-image counter increases.
-    stamp_path = batch_output_root / "batch_start_stamp.txt"
-    started_at = None
-    if stamp_path.exists():
-        try:
-            started_at = datetime.fromisoformat(stamp_path.read_text(encoding="utf-8").strip())
-        except Exception:
-            started_at = None
-    if started_at is None:
-        started_at = datetime.now()
-        try:
-            stamp_path.write_text(started_at.isoformat(timespec="seconds"), encoding="utf-8")
-        except Exception:
-            pass
-    time_label = (
-        f"{started_at.year}年{started_at.month:02d}月{started_at.day:02d}日"
-        f"{started_at.hour:02d}時{started_at.minute:02d}分"
-    )
+    # Clean any leftover working folders from an interrupted earlier run.
+    for stray in batch_output_root.glob("work_*"):
+        if stray.is_dir():
+            shutil.rmtree(stray, ignore_errors=True)
 
-    for idx, (img, mask, target_area, output_count) in enumerate(plan):
-        for local_i in range(max(1, int(output_count))):
-            seed = args.seed + emitted
-            # counter starts at 1 and increments by one for every generated image.
-            child_run_name = make_child_run_name(img.stem, time_label, emitted + 1)
-            child_run_dir = batch_output_root / child_run_name
-            if args.resume_existing and child_run_has_successful_output(child_run_dir):
-                print(f"[SKIP] existing output: {child_run_name}", flush=True)
-                emitted += 1
-                continue
-            log_path = child_run_dir / "log.txt"
-            size_is_original = str(args.size).strip().lower() in {"same_as_original", "original", "source"}
+    # Expand the execution plan into a deterministic flat queue, so a resumed run
+    # can continue purely by counting images already present in Gen_Images.
+    queue: list = []
+    for img, mask, target_area, output_count in plan:
+        for _ in range(max(1, int(output_count))):
+            queue.append((img, mask, target_area))
+    total_jobs = len(queue)
 
-            cmd = [
-                sys.executable, "-u", str(root / "scripts" / "run_gpt_image2.py"),
-                "--class-name", defect_type,
-                "--image", str(img),
-                "--workflow", args.workflow,
-                "--placement-mode", args.placement_mode,
-                "--seed", str(seed),
-                "--num-outputs", "1",
-                "--run-name", child_run_name,
-                "--output-name", child_run_name,
-                "--batch-run-name", batch_run_name,
-                "--output-dir", str(batch_output_root),
-                "--model", args.model,
-                "--size", resolve_size_for_image(args.size, img),
-                "--quality", args.quality,
-                "--output-format", args.output_format,
-                "--background", args.background,
-                "--mask-dilate", str(args.mask_dilate),
-                "--mask-feather", str(args.mask_feather),
-                "--auto-resize-multiple", "1" if size_is_original else str(args.auto_resize_multiple),
-                *original_size_args_if_needed(args.size, img),
-                "--min-defects", str(args.min_defects),
-                "--max-defects", str(args.max_defects),
-                "--random-scale-min", str(args.random_scale_min),
-                "--random-scale-max", str(args.random_scale_max),
-                "--placement-attempts", str(args.placement_attempts),
-                "--exclude-repair-padding", str(args.exclude_repair_padding),
-            ]
-            if mask is not None:
-                cmd += ["--mask", str(mask)]
-            if target_area is not None:
-                cmd += ["--target-area", str(target_area)]
-            if args.output_compression is not None:
-                cmd += ["--output-compression", str(args.output_compression)]
-            if args.no_clip_mask_to_target:
-                cmd.append("--no-clip-mask-to-target")
-            if args.prompt.strip():
-                cmd += ["--prompt", args.prompt]
-            if args.prompt_file:
-                cmd += ["--prompt-file", str(args.prompt_file)]
-            if args.prompt_config:
-                cmd += ["--prompt-config", str(args.prompt_config)]
-            if args.prompt_extra.strip():
-                cmd += ["--prompt-extra", args.prompt_extra]
-            if args.dry_run:
-                cmd.append("--dry-run")
+    # Reuse the fixed YYYY-MM-DD-HH-mm label and continue the counter from any
+    # outputs that already exist (resume); otherwise start fresh at counter 1.
+    name_re = re.compile(r"^" + re.escape(batch_run_name) + r"-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d+)$")
+    existing_imgs = [p for p in list_images(gen_images_dir) if name_re.match(p.stem)]
+    if existing_imgs:
+        existing_imgs.sort(key=lambda p: int(name_re.match(p.stem).group(6)))
+        last = name_re.match(existing_imgs[-1].stem)
+        time_label = f"{last.group(1)}-{last.group(2)}-{last.group(3)}-{last.group(4)}-{last.group(5)}"
+        already_done = len(existing_imgs)
+    else:
+        now = datetime.now()
+        time_label = f"{now.year:04d}-{now.month:02d}-{now.day:02d}-{now.hour:02d}-{now.minute:02d}"
+        already_done = 0
 
-            run_and_tee(cmd, log_path)
-            emitted += 1
+    # Persist the prompt that is actually sent to the API.
+    try:
+        resolved_prompt = load_user_prompt(defect_type, args.prompt_file, args.prompt, args.size).get("user_prompt", "")
+    except Exception:
+        resolved_prompt = args.prompt or ""
+    try:
+        (batch_output_root / "prompt.txt").write_text(resolved_prompt, encoding="utf-8")
+    except Exception as exc:
+        print(f"[WARN] could not write prompt.txt: {exc}", flush=True)
+
+    start_index = already_done if args.resume_existing else 0
+    summary_rows: list = []
+    for index in range(start_index, total_jobs):
+        img, mask, target_area = queue[index]
+        counter = index + 1
+        seed = args.seed + index
+        new_name = sanitize_path_component(f"{batch_run_name}-{time_label}-{counter}")
+        final_image = gen_images_dir / f"{new_name}.{args.output_format}"
+        if args.resume_existing and final_image.exists():
+            print(f"[SKIP] existing output: {final_image.name}", flush=True)
+            continue
+        work_dir = batch_output_root / f"work_{counter}"
+        if work_dir.exists():
+            shutil.rmtree(work_dir, ignore_errors=True)
+        log_path = work_dir / "log.txt"
+        size_is_original = str(args.size).strip().lower() in {"same_as_original", "original", "source"}
+
+        cmd = [
+            sys.executable, "-u", str(root / "scripts" / "run_gpt_image2.py"),
+            "--class-name", defect_type,
+            "--image", str(img),
+            "--workflow", args.workflow,
+            "--placement-mode", args.placement_mode,
+            "--seed", str(seed),
+            "--num-outputs", "1",
+            "--run-name", work_dir.name,
+            "--output-name", new_name,
+            "--batch-run-name", batch_run_name,
+            "--output-dir", str(batch_output_root),
+            "--model", args.model,
+            "--size", resolve_size_for_image(args.size, img),
+            "--quality", args.quality,
+            "--output-format", args.output_format,
+            "--background", args.background,
+            "--mask-dilate", str(args.mask_dilate),
+            "--mask-feather", str(args.mask_feather),
+            "--auto-resize-multiple", "1" if size_is_original else str(args.auto_resize_multiple),
+            *original_size_args_if_needed(args.size, img),
+            "--min-defects", str(args.min_defects),
+            "--max-defects", str(args.max_defects),
+            "--random-scale-min", str(args.random_scale_min),
+            "--random-scale-max", str(args.random_scale_max),
+            "--placement-attempts", str(args.placement_attempts),
+            "--exclude-repair-padding", str(args.exclude_repair_padding),
+        ]
+        if mask is not None:
+            cmd += ["--mask", str(mask)]
+        if target_area is not None:
+            cmd += ["--target-area", str(target_area)]
+        if args.output_compression is not None:
+            cmd += ["--output-compression", str(args.output_compression)]
+        if args.no_clip_mask_to_target:
+            cmd.append("--no-clip-mask-to-target")
+        if args.prompt.strip():
+            cmd += ["--prompt", args.prompt]
+        if args.prompt_file:
+            cmd += ["--prompt-file", str(args.prompt_file)]
+        if args.prompt_config:
+            cmd += ["--prompt-config", str(args.prompt_config)]
+        if args.prompt_extra.strip():
+            cmd += ["--prompt-extra", args.prompt_extra]
+        if args.dry_run:
+            cmd.append("--dry-run")
+
+        run_and_tee(cmd, log_path)
+
+        # Move the final image into Gen_Images, capture token/cost, drop the work folder.
+        tokens, cost = read_usage_from_metadata(work_dir / "metadata.json")
+        produced = find_final_image(work_dir, new_name, args.output_format)
+        if produced is not None and produced.exists():
+            if final_image.exists():
+                final_image.unlink()
+            shutil.move(str(produced), str(final_image))
+            summary_rows.append((img.name, final_image.name, tokens, cost))
+            print(f"[OK] saved: {final_image}", flush=True)
+        else:
+            print(f"[WARN] no final image produced for counter {counter}", flush=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
+        emitted += 1
+
+    # Drop any leftover work folders and (re)write the per-image summary table.
+    for stray in batch_output_root.glob("work_*"):
+        if stray.is_dir():
+            shutil.rmtree(stray, ignore_errors=True)
+    by_name: dict = {}
+    for row in read_existing_summary(batch_output_root):
+        if len(row) >= 2 and row[1]:
+            by_name[row[1]] = row
+    for row in summary_rows:
+        by_name[row[1]] = row
+
+    def _row_counter(row: tuple) -> int:
+        m = name_re.match(Path(str(row[1])).stem)
+        return int(m.group(6)) if m else 0
+
+    write_summary_table(batch_output_root, sorted(by_name.values(), key=_row_counter))
 
 
 if __name__ == "__main__":

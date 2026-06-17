@@ -21,12 +21,13 @@ from PIL import Image, ImageDraw
 from PySide6.QtCore import Qt, QProcess, QUrl, Signal, QPoint, QRect, QSize, QProcessEnvironment, QEvent, QSignalBlocker, QItemSelectionModel
 from PySide6.QtGui import (
     QDesktopServices, QPixmap, QCursor, QPainter, QColor, QPen, QTextCursor, QIcon,
-    QMouseEvent, QIntValidator, QPolygon, QShortcut, QKeySequence
+    QMouseEvent, QIntValidator, QPolygon, QShortcut, QKeySequence,
+    QStandardItem, QStandardItemModel
 )
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+    QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSizePolicy,
     QSpinBox, QDoubleSpinBox, QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QInputDialog,
     QListView, QMenu, QToolButton, QAbstractItemView, QStyle, QStyleOptionSpinBox,
     QDialog, QDialogButtonBox, QFormLayout
@@ -865,6 +866,130 @@ class PromptGroupList(QListWidget):
         delta = event.angleDelta().y() or event.angleDelta().x()
         bar.setValue(bar.value() - delta)
         event.accept()
+
+
+class CheckableRunCombo(QComboBox):
+    """Multi-select dropdown used by Step 9 to choose which runs to export.
+
+    Row 0 is the "all runs" option; the remaining rows are individual run names.
+    Each row has a checkbox. Checking "all runs" clears and disables the other rows
+    (and a forbidden cursor is shown while hovering them); unchecking re-enables
+    them. Clicking a row toggles its checkbox without closing the popup, so several
+    runs can be selected in one pass."""
+
+    ALL_LABEL = "全部 runs（包含歷次 runs）"
+    selection_changed = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._model = QStandardItemModel(self)
+        self.setModel(self._model)
+        self._list_view = QListView()
+        self.setView(self._list_view)
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.lineEdit().setPlaceholderText("選擇要匯出的 runs")
+        self._guard = False
+        self._model.itemChanged.connect(self._on_item_changed)
+        self._list_view.viewport().installEventFilter(self)
+        self.lineEdit().installEventFilter(self)
+
+    def set_runs(self, run_names: list) -> None:
+        self._guard = True
+        try:
+            self._model.clear()
+            all_item = QStandardItem(self.ALL_LABEL)
+            all_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            all_item.setData(Qt.Unchecked, Qt.CheckStateRole)
+            all_item.setData("__ALL__", Qt.UserRole)
+            self._model.appendRow(all_item)
+            for name in run_names:
+                item = QStandardItem(str(name))
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+                item.setData(Qt.Unchecked, Qt.CheckStateRole)
+                item.setData(str(name), Qt.UserRole)
+                self._model.appendRow(item)
+        finally:
+            self._guard = False
+        self._update_text()
+
+    def set_checked(self, run_names: list) -> None:
+        wanted = {str(n) for n in run_names}
+        self._guard = True
+        try:
+            for row in range(1, self._model.rowCount()):
+                it = self._model.item(row)
+                it.setCheckState(Qt.Checked if it.data(Qt.UserRole) in wanted else Qt.Unchecked)
+        finally:
+            self._guard = False
+        self._update_text()
+        self.selection_changed.emit()
+
+    def checked_runs(self) -> list:
+        all_item = self._model.item(0)
+        run_names = [self._model.item(r).data(Qt.UserRole) for r in range(1, self._model.rowCount())]
+        if all_item is not None and all_item.checkState() == Qt.Checked:
+            return list(run_names)
+        return [self._model.item(r).data(Qt.UserRole) for r in range(1, self._model.rowCount())
+                if self._model.item(r).checkState() == Qt.Checked]
+
+    def _on_item_changed(self, item) -> None:
+        if self._guard:
+            return
+        self._guard = True
+        try:
+            if item.row() == 0:
+                all_checked = item.checkState() == Qt.Checked
+                for row in range(1, self._model.rowCount()):
+                    it = self._model.item(row)
+                    if all_checked:
+                        it.setCheckState(Qt.Unchecked)
+                        it.setFlags(Qt.ItemIsUserCheckable)  # drop ItemIsEnabled -> not selectable
+                    else:
+                        it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            self._update_text()
+        finally:
+            self._guard = False
+        self.selection_changed.emit()
+
+    def _update_text(self) -> None:
+        all_item = self._model.item(0)
+        if all_item is not None and all_item.checkState() == Qt.Checked:
+            text = self.ALL_LABEL
+        else:
+            checked = [self._model.item(r).text() for r in range(1, self._model.rowCount())
+                       if self._model.item(r).checkState() == Qt.Checked]
+            text = "、".join(checked)
+        le = self.lineEdit()
+        if le is not None:
+            le.setText(text)
+
+    def _event_point(self, event):
+        if hasattr(event, "position"):
+            return event.position().toPoint()
+        return event.pos()
+
+    def eventFilter(self, obj, event):
+        if obj is self.lineEdit() and event.type() == QEvent.MouseButtonPress:
+            self.showPopup()
+            return True
+        if obj is self._list_view.viewport():
+            if event.type() == QEvent.MouseButtonRelease:
+                idx = self._list_view.indexAt(self._event_point(event))
+                if idx.isValid():
+                    item = self._model.itemFromIndex(idx)
+                    if item is not None and bool(item.flags() & Qt.ItemIsEnabled):
+                        item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+                return True  # keep the popup open for multi-select
+            if event.type() == QEvent.MouseMove:
+                idx = self._list_view.indexAt(self._event_point(event))
+                forbidden = False
+                if idx.isValid():
+                    item = self._model.itemFromIndex(idx)
+                    if item is not None and not bool(item.flags() & Qt.ItemIsEnabled):
+                        forbidden = True
+                self._list_view.viewport().setCursor(Qt.ForbiddenCursor if forbidden else Qt.PointingHandCursor)
+        return super().eventFilter(obj, event)
 
 
 class ProjectCard(QFrame):
@@ -2031,7 +2156,7 @@ class MainWindow(QMainWindow):
         6: [("gpt-image-2 輸出尺寸限制：寬高皆需為 16 的倍數、長邊不可超過 3840 px、長寬比不可超過 3:1、總像素需介於 655,360 px～8,294,400 px。", True), ("已恢復正式檢查：按『確認參數並估算本次成本』時，無論是『自訂尺寸』或『與原圖尺寸相同』，只要低於下界、高於上界或比例不合規，都會跳出提示並阻止進入下一步。", True), ("例如 640×640 = 409,600 px，低於最低總像素限制；5472×3648 長邊超過 3840 px 且總像素過高。成本預估會嘗試讀取 OpenAI Pricing；實際金額仍以 API usage / 帳單為準。", False)],
         7: [("Aggregate 會即時顯示目前重點設定。確認內容無誤後按 Submit 進入正式生成。", False)],
         8: [("生成期間會鎖定其他 Step，避免生成中被修改設定。", False), ("重新開始生成不會清除舊資料；系統會依 Step 6 的 Run name 自動建立新資料夾，例如 run1、run2、run3，避免覆蓋已完成圖片。從上次進度開始生成會沿用目前 Run name 並加入 --resume-existing。", True), ("若設定輸出 500 張，批次程式會分配到選定圖像後逐張呼叫後端；目前每張輸出由 run_gpt_image2.py 以 n=1 呼叫一次 OpenAI Image Edit API，因此通常是 500 次 API edit 呼叫。", True), ("Step 8 每次 API 輸入包含原始/裁切輸入圖、Image 2 標註參考圖、prompt、model、size、quality 等參數；reference-guided-edit 不把 ROI/Target Area 當 API mask。", False), ("正式生成會消耗 API 額度。", True)],
-        9: [("Export 會整理目前 run 到 exports/<Class>/<Run name>/；選擇全部 runs 時會合併到 exports/<Class>/all_runs/。", False), ("已移除自動標註：YOLO labels 會保留空白 .txt，COCO 的 annotations 會是空陣列；若需要訓練標註，請另外人工標註或匯入可信標註結果。", True), ("若同一 export run 已存在，會先清除後重建，避免資料重疊。", True)],
+        9: [("在『匯出範圍』勾選要匯出的 runs（可複選）；勾選『全部 runs（包含歷次 runs）』會包含所有 runs 並停用其他選項。按『確認』可將所選 runs 的生成圖載入左側預覽。", False), ("按『Export』時需選擇匯出路徑；系統會在該路徑建立一個名為 <專案名稱>-<時間戳> 的資料夾放入所有生成圖。若勾選『打包成 .zip』則改輸出對應的 .zip 檔。", False), ("每個 run 的生成圖都存放在該 run 的 Gen_Images 資料夾中；同層另有記錄每張圖 token/成本的 Excel 與該次 prompt.txt。", True)],
     }
 
     def __init__(self) -> None:
@@ -2249,7 +2374,9 @@ class MainWindow(QMainWindow):
                 }
                 combined.append(rec)
                 seen.add(key)
-        return sorted(combined, key=lambda p: str(p.get("updated_at") or ""), reverse=True)
+        # Fixed display order: sort by creation time (then id) so selecting or
+        # opening a project never reorders the cards on the Homepage.
+        return sorted(combined, key=lambda p: (str(p.get("created_at") or ""), str(p.get("id") or "")))
 
     def find_project_record(self, pid: str) -> dict | None:
         for proj in self.load_combined_projects():
@@ -2333,16 +2460,24 @@ class MainWindow(QMainWindow):
     def project_has_generation_outputs(self, state: UIState | None = None) -> bool:
         """Detect real generated outputs across both old and new run layouts.
 
-        Previous code only checked runs/<class>/metadata.json. Several project
-        versions store outputs under runs/<class>/<run>/<seed>/edited_seed*.png or
-        generated_seed*.png, and class names can differ after project duplication.
-        Searching the whole project runs tree prevents false unfinished Step 5/6/8
-        status when generated files already exist.
+        The current layout stores outputs under runs/<run>/Gen_Images/<name>.<ext>.
+        Older project versions used runs/<class>/<run>/<seed>/edited_seed*.png plus a
+        metadata.json, and class names can differ after project duplication. Searching
+        the whole project runs tree prevents false unfinished Step 5/6/8 status when
+        generated files already exist.
         """
         for pdir in self.candidate_project_dirs(state):
             runs_root = pdir / "runs"
             if not runs_root.exists():
                 continue
+            # Current layout: runs/<run_name>/Gen_Images/<run_name>-<Y>-<M>-<D>-<H>-<m>-<counter>.<ext>
+            for gen_dir in runs_root.glob("*/Gen_Images"):
+                if not gen_dir.is_dir():
+                    continue
+                for img in gen_dir.iterdir():
+                    if img.is_file() and img.suffix.lower() in SUPPORTED_EXTS and img.stat().st_size > 0:
+                        return True
+            # Legacy layouts: per-image metadata.json or seed-named final images.
             if any(runs_root.rglob("metadata.json")):
                 return True
             patterns = ["edited_seed*.png", "generated_seed*.png", "*_seed*.png"]
@@ -2506,10 +2641,11 @@ class MainWindow(QMainWindow):
         return self.project_dir() / "configs" / "classes" / self.class_name() / "prompt.txt"
 
     def runs_dir(self) -> Path:
-        return self.project_dir() / "runs" / self.class_name()
+        # No <class_name> folder layer: each run folder lives directly under runs/.
+        return self.project_dir() / "runs"
 
     def exports_dir(self) -> Path:
-        return self.project_dir() / "exports" / self.class_name()
+        return self.project_dir() / "exports"
 
     def current_run_name(self, create_if_empty: bool = False) -> str:
         name = sanitize_name(self.state.run_name or "")
@@ -2659,8 +2795,7 @@ class MainWindow(QMainWindow):
         footer = QHBoxLayout(); footer.setSpacing(10)
         help_btn = QPushButton(self.TR["help"]); help_btn.setObjectName("HelpButton"); help_btn.clicked.connect(self.safe_action(f"show_help_{step_idx}", lambda: self.show_help(step_idx)))
         back_btn = QPushButton(self.TR["back"]); back_btn.clicked.connect(self.safe_action("go_back", self.go_back))
-        submit_btn = QPushButton("Export" if step_idx == 9 else self.TR["submit"]); submit_btn.setObjectName("SubmitButton"); submit_btn.clicked.connect(self.safe_action(f"submit_step_{step_idx}", lambda: self.submit_step(step_idx)))
-        self.footer_buttons[step_idx] = {"help": help_btn, "back": back_btn, "submit": submit_btn}
+        self.footer_buttons[step_idx] = {"help": help_btn, "back": back_btn}
         footer.addWidget(help_btn); footer.addStretch(1); footer.addWidget(back_btn)
         if step_idx == 3:
             use_all_original_btn = QPushButton("使用原始圖片")
@@ -2669,14 +2804,17 @@ class MainWindow(QMainWindow):
             self.footer_buttons[step_idx]["use_original_all"] = use_all_original_btn
             footer.addWidget(use_all_original_btn)
         if step_idx == 9:
+            # Step 9 has no footer Submit; the Export button is inside the Export 規劃 section.
             home_btn = QPushButton("回首頁")
             home_btn.setObjectName("PrimaryButton")
             home_btn.setMinimumWidth(118)
             home_btn.clicked.connect(self.safe_action("go_home_from_export", self.go_home_from_export))
             self.footer_buttons[step_idx]["home"] = home_btn
             footer.addWidget(home_btn)
-            submit_btn.setMinimumWidth(132)
-        footer.addWidget(submit_btn)
+        else:
+            submit_btn = QPushButton(self.TR["submit"]); submit_btn.setObjectName("SubmitButton"); submit_btn.clicked.connect(self.safe_action(f"submit_step_{step_idx}", lambda: self.submit_step(step_idx)))
+            self.footer_buttons[step_idx]["submit"] = submit_btn
+            footer.addWidget(submit_btn)
         page_lay.addLayout(footer)
         return page
 
@@ -3081,25 +3219,24 @@ class MainWindow(QMainWindow):
         return self.wrap_page(8, lay)
 
     def page_export(self) -> QWidget:
-        lay=QVBoxLayout(); lay.addWidget(self.header("Step 9｜Export / 輸出資料整理", "檢視生成圖；按 Export 會整理至 exports/<Class>/<Run name> 或 all_runs。"))
+        lay=QVBoxLayout(); lay.addWidget(self.header("Step 9｜Export / 輸出資料整理", "勾選要匯出的 runs，按『確認』預覽，再按『Export』選擇路徑匯出。"))
 
-        box=QGroupBox("Export 規劃"); g=QGridLayout(box); g.setColumnStretch(0,1); g.setColumnStretch(1,1); g.setColumnStretch(2,0)
-        self.export_scope_combo=QComboBox(); self.export_scope_combo.addItems(["目前 run（依 Run name）", "全部 runs（包含歷次 runs）"])
-        # Backward-compatible load: older projects only had export_latest_only.
-        if getattr(self.state, "export_scope", "current") == "all" or (hasattr(self.state, "export_latest_only") and not self.state.export_latest_only):
-            self.export_scope_combo.setCurrentText("全部 runs（包含歷次 runs）")
-        else:
-            self.export_scope_combo.setCurrentText("目前 run（依 Run name）")
-        self.export_scope_combo.currentTextChanged.connect(self.safe_slot("export_scope_changed", lambda *_: (self.update_state_from_widgets(), self.refresh_outputs(auto_select=True))))
-        self.coco_check=QCheckBox("匯出 COCO 格式：coco/annotations/coco.json（不自動標註）"); self.coco_check.setChecked(self.state.export_coco)
-        self.yolo_check=QCheckBox("匯出 YOLO 格式：yolo/labels/*.txt（空白）+ yolo/data.yaml"); self.yolo_check.setChecked(self.state.export_yolo)
-        refresh=QPushButton("重新整理輸出"); refresh.clicked.connect(self.safe_action("refresh_outputs", lambda: self.refresh_outputs(auto_select=True)))
-        g.addWidget(QLabel("匯出範圍"),0,0); g.addWidget(self.export_scope_combo,0,1); g.addWidget(refresh,0,2)
-        # COCO checkbox sits in the left column (under the 匯出範圍 label); the YOLO
-        # checkbox sits directly below the 匯出範圍 (export scope) dropdown, on the
-        # same row as the COCO checkbox.
-        g.addWidget(self.coco_check,1,0)
-        g.addWidget(self.yolo_check,1,1)
+        box=QGroupBox("Export 規劃"); g=QGridLayout(box)
+        g.setColumnStretch(0,0); g.setColumnStretch(1,1); g.setColumnStretch(2,0); g.setColumnStretch(3,0); g.setColumnStretch(4,0)
+        self.export_runs_combo=CheckableRunCombo(); self.export_runs_combo.setMinimumWidth(360)
+        refresh=QPushButton("重新整理輸出"); refresh.clicked.connect(self.safe_action("refresh_export_runs", lambda: self.refresh_outputs(auto_select=True)))
+        confirm_btn=QPushButton("確認"); confirm_btn.setObjectName("PrimaryButton")
+        confirm_btn.clicked.connect(self.safe_action("preview_selected_runs", self.load_selected_runs_preview))
+        export_btn=QPushButton("Export"); export_btn.setObjectName("SubmitButton"); export_btn.setMinimumWidth(120)
+        export_btn.clicked.connect(self.safe_action("submit_step_9", lambda: self.submit_step(9)))
+        self.export_run_btn=export_btn
+        self.zip_check=QCheckBox("打包成 .zip"); self.zip_check.setChecked(True)
+        g.addWidget(QLabel("匯出範圍"),0,0)
+        g.addWidget(self.export_runs_combo,0,1)
+        g.addWidget(refresh,0,2)
+        g.addWidget(confirm_btn,0,3)
+        g.addWidget(export_btn,0,4)
+        g.addWidget(self.zip_check,1,0,1,2)
         lay.addWidget(box,0)
 
         mid=QHBoxLayout(); mid.setSpacing(12)
@@ -3115,7 +3252,11 @@ class MainWindow(QMainWindow):
         self.output_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         mid.addWidget(self.output_preview,1)
         lay.addLayout(mid,1)
-        return self.wrap_page(9, lay)
+        page=self.wrap_page(9, lay)
+        # The Export button lives in the section; register it so the generation
+        # soft-lock (forbidden cursor) still applies to it like a footer submit.
+        self.footer_buttons.setdefault(9, {})["submit"]=export_btn
+        return page
 
     # ---------- style ----------
     def apply_style(self) -> None:
@@ -3179,7 +3320,8 @@ class MainWindow(QMainWindow):
             #ProjectCard[mode="defect"] { border: 3px solid #10b981; }
             #ProjectCard[mode="food"] { border: 3px solid #2563eb; }
             #ProjectCard:hover { border: 3px solid #3b82f6; background: #f8fbff; }
-            #ProjectCard[selected="true"] { border: 4px solid #ef4444; }
+            #ProjectCard[mode="defect"][selected="true"] { border: 4px solid #047857; }
+            #ProjectCard[mode="food"][selected="true"] { border: 4px solid #1e40af; }
             #ActiveProjectLabel { background: #e0f2fe; color: #0f172a; border: 1px solid #93c5fd; border-radius: 12px; padding: 10px 14px; font-weight: 700; }
             #ProjectCardHeader { background: #a7f3d0; border-top-left-radius: 16px; border-top-right-radius: 16px; padding: 10px; }
             #ProjectCardHeader[mode="defect"] { background: #a7f3d0; }
@@ -3492,23 +3634,12 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("Create Project")
         form = QFormLayout(dialog)
         project_edit = QLineEdit()
-        class_edit = QLineEdit()
         mode_combo = QComboBox()
         for key, label in MODE_OPTIONS:
             mode_combo.addItem(label, key)
         mode_combo.setCurrentIndex(0 if APP_MODE == "defect" else 1)
         project_edit.setPlaceholderText("project name")
-        class_edit.setPlaceholderText("class name")
-        class_touched = {"value": False}
-
-        def sync_class_name(text: str) -> None:
-            if not class_touched["value"]:
-                class_edit.setText(sanitize_name(text))
-
-        class_edit.textEdited.connect(lambda *_: class_touched.__setitem__("value", True))
-        project_edit.textChanged.connect(sync_class_name)
         form.addRow("Project Name", project_edit)
-        form.addRow("Class Name", class_edit)
         form.addRow("Mode", mode_combo)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
@@ -3518,7 +3649,9 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         selected_mode = str(mode_combo.currentData() or APP_MODE)
-        return project_edit.text().strip(), class_edit.text().strip(), selected_mode
+        # Class Name is no longer entered by the user; it defaults to the project
+        # name inside create_project_with_values for internal data/config paths.
+        return project_edit.text().strip(), "", selected_mode
 
     def create_project_with_values(self, name: str, class_name: str, selected_mode: str | None = None) -> None:
         selected_mode = (selected_mode or APP_MODE).lower()
@@ -3910,8 +4043,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, "prompt_edit"):
             self._set_widget_value_blocked(self.prompt_edit, "setPlainText", self.state.prompt_input or "")
             self.update_actual_prompt_preview()
-        if hasattr(self, "export_scope_combo"):
-            self._set_widget_value_blocked(self.export_scope_combo, "setCurrentText", "全部 runs（包含歷次 runs）" if getattr(self.state, "export_scope", "current") == "all" else "目前 run（依 Run name）")
         if hasattr(self, "api_edit"):
             self.refresh_api_placeholder()
             self._set_widget_value_blocked(self.api_edit, "clear", None)
@@ -3931,12 +4062,6 @@ class MainWindow(QMainWindow):
             self.state.prompt_input = self.prompt_edit.toPlainText() if hasattr(self, "prompt_edit") else self.state.prompt_input
         if hasattr(self, "model_combo"):
             self.state.model = self.model_combo.currentText(); self.state.quality = self.quality_combo.currentText(); self.state.size = self.current_size(); self.state.num_outputs = self.num_spin.value(); self.state.run_name = self.run_name_edit.text().strip(); self.state.dry_run = False
-        if hasattr(self, "export_scope_combo"):
-            self.state.export_scope = "all" if self.export_scope_combo.currentText().startswith("全部") else "current"
-            # Keep older state fields in sync for backward compatibility.
-            self.state.export_latest_only = (self.state.export_scope != "all")
-            self.state.export_copy_images = True
-            self.state.export_coco = self.coco_check.isChecked(); self.state.export_yolo = self.yolo_check.isChecked()
 
     def first_unfinished_step(self) -> int:
         for i, done in enumerate(self.state.completed_steps):
@@ -4122,13 +4247,13 @@ class MainWindow(QMainWindow):
     def submit_run(self) -> bool:
         if self.current_process and self.current_process.state() != QProcess.NotRunning:
             QMessageBox.warning(self,"Running","請等待生成程序結束。"); return False
-        if not self.filtered_run_metadata() or not self.current_run_has_successful_outputs():
+        if not self.current_run_has_successful_outputs():
             QMessageBox.warning(self,"Missing","目前 Run 尚未找到有效輸出圖，請先按「重新開始生成」或「從上次進度開始生成」並確認 log 顯示成功。")
             return False
         return True
 
     def submit_export(self) -> bool:
-        return self.export_dataset(show_message=False)
+        return self.export_dataset(show_message=True)
 
     # ---------- Step 1 setup ----------
     def verify_environment(self) -> None:
@@ -5489,36 +5614,57 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def successful_output_files(self, metas: Optional[list[Path]] = None) -> list[Path]:
-        """Return final output image paths that actually exist on disk.
+    def export_run_names(self) -> list[str]:
+        """Run folder names under runs/ that contain at least one generated image."""
+        root = self.runs_dir()
+        if not root.exists():
+            return []
+        names: list[str] = []
+        for child in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+            if child.is_dir() and self.run_image_paths(child.name):
+                names.append(child.name)
+        return names
 
-        Supports the current structure:
-        runs/<class>/<run_name>/<crop_stem>_seedXXXX/edited_seedXXXX.png
-        and falls back to a recursive search when older metadata has relative or
-        platform-specific paths.
-        """
-        selected_metas = metas if metas is not None else self.filtered_run_metadata()
+    def run_image_paths(self, run_name: str) -> list[Path]:
+        """All generated images for one run, taken from its Gen_Images folder.
+
+        Falls back to a filtered recursive search for legacy runs created before the
+        Gen_Images layout existed."""
+        run_dir = self.runs_dir() / sanitize_name(str(run_name))
+        gen = run_dir / "Gen_Images"
+        if gen.exists():
+            return list_images(gen)
+        if not run_dir.exists():
+            return []
         found: list[Path] = []
-        for meta in selected_metas:
-            data = self._read_meta_file(meta)
-            for item in (data.get("final_outputs") or data.get("outputs") or []):
-                path = self._resolve_generated_path(str(item), meta)
-                if path:
-                    found.append(path)
-        if not found:
-            run_name = sanitize_name(str(self.state.run_name or "").strip())
-            roots = []
-            if run_name:
-                roots.append(self.runs_dir() / run_name)
-            roots.append(self.runs_dir())
-            for root in roots:
-                if root.exists():
-                    for p in root.rglob("*"):
-                        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS and (re.match(r"^(edited|generated|repaired)_seed", p.name) or p.stem == p.parent.name):
-                            found.append(p.resolve())
+        for p in run_dir.rglob("*"):
+            if not (p.is_file() and p.suffix.lower() in SUPPORTED_EXTS):
+                continue
+            stem = p.stem.lower()
+            if stem == "input" or "mask" in stem or "preview" in stem or "annotation" in stem:
+                continue
+            if re.match(r"^(edited|generated|repaired)_seed", p.name) or p.stem == p.parent.name or p.parent.name == "Gen_Images":
+                found.append(p.resolve())
+        return sorted(found, key=lambda x: x.name)
+
+    def successful_output_files(self, metas: Optional[list[Path]] = None) -> list[Path]:
+        """Return final generated image paths for the current run.
+
+        With the Gen_Images run layout the current run name maps directly to
+        runs/<run_name>/Gen_Images/.  When no current run is set, fall back to the
+        most recently modified run folder so Step 9 still shows something."""
+        paths: list[Path] = []
+        run_name = sanitize_name(str(self.state.run_name or "").strip())
+        if run_name:
+            paths = self.run_image_paths(run_name)
+        if not paths:
+            names = self.export_run_names()
+            if names:
+                latest = max((self.runs_dir() / n for n in names), key=lambda d: d.stat().st_mtime if d.exists() else 0)
+                paths = self.run_image_paths(latest.name)
         seen: set[str] = set()
         unique: list[Path] = []
-        for path in sorted(found, key=lambda x: x.stat().st_mtime if x.exists() else 0):
+        for path in sorted(paths, key=lambda x: x.stat().st_mtime if x.exists() else 0):
             key = str(path.resolve())
             if key not in seen:
                 unique.append(path); seen.add(key)
@@ -5690,19 +5836,47 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "No output", "生成程序結束，但沒有找到任何輸出圖。請查看下方 log。")
         self.run_command(cmd,"generation",on_finished=_after_generation)
 
+    def _current_run_summary_file(self) -> Optional[Path]:
+        run_name = sanitize_name(str(self.state.run_name or "").strip())
+        if not run_name:
+            return None
+        run_dir = self.runs_dir() / run_name
+        for fname in ("generation_summary.xlsx", "generation_summary.csv"):
+            p = run_dir / fname
+            if p.exists():
+                return p
+        return None
+
     def update_actual_generation_cost(self) -> None:
+        """Sum the Cost($USD) column of the current run's summary table."""
         total = 0.0
         found = False
-        for meta in self.filtered_run_metadata():
-            data = self._read_meta_file(meta)
-            for call in data.get("api_calls", []) or []:
-                if isinstance(call, dict):
-                    val = call.get("estimated_cost_usd")
-                    try:
-                        if val is not None:
-                            total += float(val); found = True
-                    except Exception:
-                        pass
+        summary = self._current_run_summary_file()
+        if summary is not None:
+            try:
+                if summary.suffix.lower() == ".xlsx":
+                    from openpyxl import load_workbook
+                    wb = load_workbook(summary, read_only=True, data_only=True)
+                    ws = wb.active
+                    for row in ws.iter_rows(min_row=2, values_only=True):
+                        if row and len(row) >= 4 and row[3] not in (None, ""):
+                            try:
+                                total += float(row[3]); found = True
+                            except Exception:
+                                pass
+                    wb.close()
+                else:
+                    import csv
+                    with open(summary, encoding="utf-8-sig", newline="") as fh:
+                        reader = csv.reader(fh); next(reader, None)
+                        for row in reader:
+                            if len(row) >= 4 and row[3] not in (None, ""):
+                                try:
+                                    total += float(row[3]); found = True
+                                except Exception:
+                                    pass
+            except Exception:
+                found = False
         self.state.actual_run_cost_usd = round(total, 8) if found else 0.0
         self.save_state()
         if hasattr(self, "actual_cost_label"):
@@ -5761,64 +5935,123 @@ class MainWindow(QMainWindow):
         latest_group = self._meta_group_key(metas[0])
         return [m for m in metas if self._meta_group_key(m) == latest_group]
 
-    def _run_export_to_temp(self, export_dir: Path) -> subprocess.CompletedProcess:
-        """Create a temporary normalized export using only the current UI options."""
-        cmd=[
-            sys.executable, str(self.root/"scripts"/"export_dataset.py"),
-            "--class-name", self.state.class_name,
-            "--runs-root", str(self.runs_dir()),
-            "--export-root", str(export_dir),
-            "--copy-images",
-        ]
-        # Export scope:
-        # - current: export only current run name / latest batch, capped by current output count.
-        # - all: export all runs under this class; do not cap by current output count.
-        if getattr(self.state, "export_scope", "current") == "all":
-            pass
-        else:
-            cmd += ["--max-images", str(max(1, int(self.state.num_outputs)))]
-            if self.state.run_name:
-                cmd += ["--run-name", self.state.run_name]
-            else:
-                cmd.append("--latest-only")
-        if self.state.export_coco:
-            cmd.append("--coco")
-        if self.state.export_yolo:
-            cmd.append("--yolo")
-        return subprocess.run(cmd, cwd=self.root, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
+    def selected_export_runs(self) -> list[str]:
+        combo = getattr(self, "export_runs_combo", None)
+        if combo is None:
+            return []
+        return [str(n) for n in combo.checked_runs() if n]
+
+    def refresh_export_runs_combo(self) -> None:
+        if not hasattr(self, "export_runs_combo"):
+            return
+        runs = self.export_run_names()
+        previously = set(self.selected_export_runs())
+        self.export_runs_combo.set_runs(runs)
+        keep = [r for r in runs if r in previously]
+        if not keep:
+            cur = sanitize_name(str(self.state.run_name or "").strip())
+            if cur in runs:
+                keep = [cur]
+        if keep:
+            self.export_runs_combo.set_checked(keep)
+
+    def _collect_selected_run_images(self) -> tuple[list[str], list[Path]]:
+        runs = self.selected_export_runs()
+        images: list[Path] = []
+        seen: set[str] = set()
+        for rn in runs:
+            for p in self.run_image_paths(rn):
+                key = str(p.resolve())
+                if key not in seen:
+                    seen.add(key); images.append(p)
+        return runs, images
+
+    def load_selected_runs_preview(self) -> None:
+        """Confirm button: load every selected run's images into the left sidebar."""
+        self.update_state_from_widgets()
+        runs, images = self._collect_selected_run_images()
+        if not runs:
+            QMessageBox.warning(self, "Missing", "請先在『匯出範圍』勾選至少一個 run。")
+            return
+        self.output_list.clear()
+        if not images:
+            self.output_preview.clear("所選 runs 沒有任何生成圖像。")
+            return
+        progress = QProgressDialog("生成圖像正在 loading...", "", 0, len(images), self)
+        progress.setWindowTitle("Loading")
+        progress.setCancelButton(None)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        app = QApplication.instance()
+        icon_size = self.output_list.iconSize()
+        for i, p in enumerate(images, start=1):
+            item = QListWidgetItem(elide_middle_stars(f"{p.parent.parent.name} / {p.name}", 34))
+            item.setData(Qt.UserRole, str(p))
+            item.setTextAlignment(Qt.AlignCenter)
+            try:
+                item.setIcon(cached_thumbnail_icon(p, icon_size))
+            except Exception:
+                pass
+            item.setToolTip(str(p))
+            self.output_list.addItem(item)
+            progress.setValue(i)
+            if app is not None:
+                app.processEvents()
+        progress.close()
+        if self.output_list.count():
+            self.output_list.setCurrentRow(0)
+        self.status_label.setText(f"Status: 已載入 {len(images)} 張預覽圖（{len(runs)} 個 run）。")
 
     def export_dataset(self, show_message: bool=True)->bool:
+        """Copy the selected runs' generated images into a user-chosen folder.
+
+        The destination path is always chosen by the user. A folder named
+        <project_name>-<timestamp> is created there holding every image; when the
+        zip option is ticked the folder is packed into <project_name>-<timestamp>.zip
+        instead of being left loose."""
         self.update_state_from_widgets()
-        if not self.export_scope_is_all():
-            self.current_run_name(create_if_empty=True)
-        self.save_state()
-        if not self.find_run_metadata():
-            QMessageBox.warning(self,"Missing","尚未找到生成紀錄。")
+        runs, images = self._collect_selected_run_images()
+        if not runs:
+            QMessageBox.warning(self, "Missing", "請先在『匯出範圍』勾選至少一個 run。")
             return False
-        export_dir = self.current_export_dir().resolve()
+        if not images:
+            QMessageBox.warning(self, "Missing", "所選 runs 沒有任何生成圖像可匯出。")
+            return False
+        dest = QFileDialog.getExistingDirectory(self, "選擇匯出路徑")
+        if not dest:
+            return False
+        project_label = sanitize_name(self.state.project_name or self.state.project_id or "export") or "export"
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        folder_name = f"{project_label}-{stamp}"
+        want_zip = bool(self.zip_check.isChecked()) if hasattr(self, "zip_check") else True
         try:
-            if export_dir.exists():
-                shutil.rmtree(export_dir)
-            ensure_dir(export_dir)
-            proc=self._run_export_to_temp(export_dir)
-            self.log_box_append(proc.stdout+proc.stderr)
-            self.state.last_export_dir=str(export_dir)
-
-            self.state.last_export_zip=""
-
+            dest_root = Path(dest)
+            out_dir = dest_root / folder_name
+            if out_dir.exists():
+                shutil.rmtree(out_dir)
+            ensure_dir(out_dir)
+            for p in images:
+                target = out_dir / p.name
+                if target.exists():
+                    target = out_dir / f"{sanitize_name(p.parent.parent.name)}_{p.name}"
+                shutil.copy2(p, target)
+            result_path: Path = out_dir
+            if want_zip:
+                archive = shutil.make_archive(str(dest_root / folder_name), "zip", root_dir=str(dest_root), base_dir=folder_name)
+                shutil.rmtree(out_dir, ignore_errors=True)
+                result_path = Path(archive)
+            self.state.last_export_dir = str(result_path)
+            self.state.last_export_zip = str(result_path) if want_zip else ""
             self.state.completed_steps[9] = True
             self.dirty_steps[9] = False
-            self.save_state(); self.refresh_outputs(); self.update_step_buttons()
+            self.save_state(); self.update_step_buttons()
             if show_message:
-                msg=f"已整理至：\n{export_dir}"
-                QMessageBox.information(self,"Done",msg)
+                QMessageBox.information(self, "Done", f"已匯出 {len(images)} 張圖像至：\n{result_path}")
             return True
         except Exception as exc:
-            if isinstance(exc,subprocess.CalledProcessError):
-                self.log_box_append((exc.stdout or "")+(exc.stderr or "")); detail=(exc.stderr or exc.stdout or str(exc))[-2000:]
-            else:
-                detail=str(exc)
-            QMessageBox.critical(self,"Export failed",self.scrub_text(detail)); return False
+            QMessageBox.critical(self, "Export failed", self.scrub_text(str(exc)))
+            return False
 
     def go_home_from_export(self)->None:
         """Return to Step 1 without deleting the current project or generated files."""
@@ -5988,6 +6221,7 @@ class MainWindow(QMainWindow):
         self.update_region_selection_status()
 
     def refresh_outputs(self, auto_select: bool=False)->None:
+        self.refresh_export_runs_combo()
         self.output_list.clear()
         clean = sorted(self.successful_output_files(), key=lambda x: x.stat().st_mtime if x.exists() else 0, reverse=True)
         if not clean and hasattr(self, "output_preview"):
