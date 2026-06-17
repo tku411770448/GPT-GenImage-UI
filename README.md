@@ -72,7 +72,7 @@ again.
 ```mermaid
 flowchart TD
     Z[Step 0 Mode Selection\nChoose Gen Defect or Gen Food]
-    A[Step 1 Homepage / Project Management\nCreate/open/duplicate/delete project\nSet shared OpenAI API key\nProject Name only - no Class Name input]
+    A[Step 1 Homepage / Project Management\nCreate/open/duplicate/delete project\nSet shared OpenAI API key\nEnter 專案名稱, 生成圖片物件的名稱, 模式]
     B[Step 2 Data Upload\nImport or drag source images]
     C[Step 3 Crop / Use Original\nChoose original images or crop fixed-size inputs]
     D[Step 4 ROI / Target Area\nDraw ROI and allowed generation areas]
@@ -102,9 +102,11 @@ step indexes for compatibility with existing project state files.
 
 ### Step 1: Homepage / Project Management
 
-- Create a new project with a `Project Name` only. The `Class Name` input has been
-  removed; the class name now defaults to the project name for internal data/config
-  paths.
+- The Create Project dialog has three fields: `專案名稱` (project name), `生成圖片物件的名稱`
+  (the name of the object to generate), and `模式` (mode).
+- `生成圖片物件的名稱` becomes the class name: it is filled into the `{class_name}` prompt
+  template variable in Step 5 (Prompt 編輯) for both modes and is used as the internal
+  data/config folder name. If left blank it defaults to the project name.
 - Save or replace the shared `OPENAI_API_KEY` used by all projects.
 - Open, duplicate, or delete existing project cards.
 - Duplicating a project copies its project state and class workspace artifacts so the

@@ -3621,13 +3621,16 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("Create Project")
         form = QFormLayout(dialog)
         project_edit = QLineEdit()
+        object_edit = QLineEdit()
         mode_combo = QComboBox()
         for key, label in MODE_OPTIONS:
             mode_combo.addItem(label, key)
         mode_combo.setCurrentIndex(0 if APP_MODE == "defect" else 1)
-        project_edit.setPlaceholderText("project name")
-        form.addRow("Project Name", project_edit)
-        form.addRow("Mode", mode_combo)
+        project_edit.setPlaceholderText("專案名稱")
+        object_edit.setPlaceholderText("例如：fried_chicken、burr")
+        form.addRow("專案名稱", project_edit)
+        form.addRow("生成圖片物件的名稱", object_edit)
+        form.addRow("模式", mode_combo)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
@@ -3636,9 +3639,10 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         selected_mode = str(mode_combo.currentData() or APP_MODE)
-        # Class Name is no longer entered by the user; it defaults to the project
-        # name inside create_project_with_values for internal data/config paths.
-        return project_edit.text().strip(), "", selected_mode
+        # 生成圖片物件的名稱 becomes the class name: it is the {class_name} prompt
+        # template variable used in Step 5 (Prompt 編輯) for both modes and the
+        # internal data/config folder name. Falls back to the project name if blank.
+        return project_edit.text().strip(), object_edit.text().strip(), selected_mode
 
     def create_project_with_values(self, name: str, class_name: str, selected_mode: str | None = None) -> None:
         selected_mode = (selected_mode or APP_MODE).lower()
