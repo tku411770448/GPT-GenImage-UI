@@ -2005,7 +2005,7 @@ class StepButton(QPushButton):
 class MainWindow(QMainWindow):
     TR = {
         "app_title": "GPT GenImage UI",
-        "workflow_hint": "Step 1 管理專案；專案卡綠色＝Defect、紅色＝Food；紅框＝尚未儲存；綠框＝已完成；灰色＝不可跳步。",
+        "workflow_hint": "Step 1 管理專案；專案卡綠色＝Defect、藍色＝Food；紅框＝尚未儲存；綠框＝已完成；灰色＝不可跳步。",
         "step0": "Homepage",
         "step1": "專案與 API",
         "step2": "資料上傳",
@@ -2022,7 +2022,7 @@ class MainWindow(QMainWindow):
     }
 
     HELP = {
-        0: [("可在此新增、開啟、複製或刪除專案。新增專案時請選擇 Mode：Defect 走瑕疵資料流程，Food 走食物變化流程。專案卡綠色代表 Defect，紅色代表 Food。", False)],
+        0: [("可在此新增、開啟、複製或刪除專案。新增專案時請選擇 Mode：Defect 走瑕疵資料流程，Food 走食物變化流程。專案卡綠色代表 Defect，藍色代表 Food。", False)],
         1: [("第一次使用請輸入 OpenAI API Key，按『儲存 / 替換 API Key』後會立即顯示是否已保存成功。", False), ("重要：若輸入不同 API Key，系統會先要求確認，避免誤改；套件版本檢查已省略。", True)],
         2: [("可拖曳圖片或資料夾上傳；刪除只會移除本專案複製檔，不會刪除原始圖片。", False), ("上方清單用來管理檔案；下方大預覽框用來檢查目前選取圖片。", False)],
         3: [("先點選左側已上傳圖片縮圖，中間才會載入該原圖預覽。", False), ("若要保留全部原圖不裁切，請按底部 Back 與 Submit 之間的『使用原始圖片』；系統會把 Step 2 的全部上傳圖直接作為 Step 4 輸入並跳到 Step 4。", True), ("若需要裁切，請設定裁切框寬高後在中間圖像點選/拖曳裁切框，裁切結果會加入右側 Step 4 輸入圖像。裁切寬高僅作為輸入圖尺寸；建議值為 320(px)～1280(px)，真正的生成輸出尺寸限制在 Step 6。", False)],
@@ -3173,16 +3173,16 @@ class MainWindow(QMainWindow):
             QProgressBar::chunk { background: #2563eb; border-radius: 9px; }
             #ProjectCard { background: #ffffff; border: 2px solid #cbd5e1; border-radius: 18px; padding: 0px; }
             #ProjectCard[mode="defect"] { border: 3px solid #10b981; }
-            #ProjectCard[mode="food"] { border: 3px solid #ef4444; }
+            #ProjectCard[mode="food"] { border: 3px solid #2563eb; }
             #ProjectCard:hover { border: 3px solid #3b82f6; background: #f8fbff; }
             #ProjectCard[selected="true"] { border: 4px solid #2563eb; }
             #ActiveProjectLabel { background: #e0f2fe; color: #0f172a; border: 1px solid #93c5fd; border-radius: 12px; padding: 10px 14px; font-weight: 700; }
             #ProjectCardHeader { background: #a7f3d0; border-top-left-radius: 16px; border-top-right-radius: 16px; padding: 10px; }
             #ProjectCardHeader[mode="defect"] { background: #a7f3d0; }
-            #ProjectCardHeader[mode="food"] { background: #fecaca; }
+            #ProjectCardHeader[mode="food"] { background: #bfdbfe; }
             #ProjectBadge { color: #0f766e; background: #ecfeff; border-radius: 10px; padding: 6px 12px; font-weight: 800; font-size: 15px; }
             #ProjectBadge[mode="defect"] { color: #047857; background: #ecfdf5; }
-            #ProjectBadge[mode="food"] { color: #b91c1c; background: #fff1f2; }
+            #ProjectBadge[mode="food"] { color: #1d4ed8; background: #eff6ff; }
             #CardTitle { color:#0f172a; font-size:16px; font-weight:800; }
             #CardMeta { color:#334155; font-size:12px; padding: 4px 14px; line-height: 1.35; }
             #PromptGroupList { background:#ffffff; border:1px solid #cbd5e1; border-radius:14px; padding:8px; }

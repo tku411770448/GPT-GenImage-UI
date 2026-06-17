@@ -107,6 +107,7 @@ step indexes for compatibility with existing project state files.
 - Open, duplicate, or delete existing project cards.
 - Duplicating a project copies its project state and class workspace artifacts so the
   new card opens with the same existing content.
+- Homepage project cards use green for defect projects and blue for food projects.
 - Project names must be unique.
 - Reopening a project returns to the mode homepage while preserving completed-step state and
   existing artifacts.
