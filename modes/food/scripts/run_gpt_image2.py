@@ -82,6 +82,58 @@ def sanitize_name(name: str) -> str:
     return re.sub(r"_+", "_", s).strip("._-") or "run"
 
 
+def sanitize_path_component(name: str) -> str:
+    """Path-safe file/folder component that preserves Unicode (e.g. CJK
+    year/month/day/minute labels) while removing characters that are illegal in
+    Windows/Unix file names. Used for the UI generated-image naming scheme
+    <image_stem>_<YYYY年MM月DD日HH時MM分>_<counter>."""
+    s = str(name).strip()
+    s = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", s)
+    s = re.sub(r"\s+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("._-")
+    return s or "run"
+
+
+def apply_output_name(run_dir: Path, metadata: dict, base: str, default_ext: str) -> None:
+    """Rename the final generated image(s) to a UI-provided display base name and
+    update the metadata path lists in place.
+
+    The exporter and the UI both resolve images via metadata['final_outputs'] /
+    metadata['outputs'], so renaming here keeps the run folder self-consistent
+    without touching every workflow-specific save site. The first final output
+    becomes ``<base>.<ext>``; any additional outputs get ``<base>_<n>.<ext>`` so
+    names never collide."""
+    finals = list(metadata.get("final_outputs") or [])
+    if not base or not finals:
+        return
+    rename_map: dict[str, str] = {}
+    for idx, old in enumerate(finals):
+        old_path = Path(str(old))
+        ext = old_path.suffix or f".{default_ext}"
+        suffix = "" if idx == 0 else f"_{idx + 1}"
+        new_path = run_dir / f"{base}{suffix}{ext}"
+        try:
+            if old_path.exists() and old_path.resolve() != new_path.resolve():
+                if new_path.exists():
+                    new_path.unlink()
+                old_path.replace(new_path)
+        except Exception as exc:
+            print(f"[WARN] could not rename {old_path.name} -> {new_path.name}: {exc}", flush=True)
+            continue
+        rename_map[str(old)] = str(new_path)
+        rename_map[str(old_path)] = str(new_path)
+    if not rename_map:
+        return
+    metadata["final_outputs"] = [rename_map.get(str(p), str(p)) for p in metadata.get("final_outputs", [])]
+    metadata["outputs"] = [rename_map.get(str(p), str(p)) for p in metadata.get("outputs", [])]
+    for entry in metadata.get("per_seed", []):
+        for key in ("edited_output", "generated_output", "repair_output"):
+            val = entry.get(key)
+            if val is not None and str(val) in rename_map:
+                entry[key] = rename_map[str(val)]
+    print(f"[INFO] final output renamed to UI scheme base: {base}", flush=True)
+
+
 def format_elapsed(seconds: float) -> str:
     """Return elapsed seconds as a compact string like 2m05s."""
     total = max(0, int(round(float(seconds))))
@@ -1236,6 +1288,7 @@ def parse_args():
     p.add_argument("--prompt-extra", default="", help="Extra text appended after the simple prompt")
     p.add_argument("--output-dir", type=Path, default=root / "runs")
     p.add_argument("--run-name", default=None)
+    p.add_argument("--output-name", default=None, help="Base file name (no extension) for the final generated image. The UI passes <image_stem>_<YYYY年MM月DD日HH時MM分>_<counter>.")
     p.add_argument("--batch-run-name", default=None, help="UI batch name used to group child runs for export")
     p.add_argument("--keep-intermediates", action="store_true", help="Keep masks, previews and per-call JSON files. By default they are cleaned after generation.")
     p.add_argument("--seed", type=int, default=5000, help="Controls local random placement only; OpenAI image API does not expose generation seed.")
@@ -1365,7 +1418,7 @@ def main():
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     default_run_name = f"{sanitize_name(args.image.stem)}_{args.workflow}_{timestamp}"
-    run_name = sanitize_name(args.run_name) if args.run_name else default_run_name
+    run_name = sanitize_path_component(args.run_name) if args.run_name else default_run_name
     output_base = args.output_dir
     # Backward compatible output handling:
     #   --output-dir <root>/runs                  -> <root>/runs/<class>/<run_name>
@@ -1707,6 +1760,8 @@ def main():
         })
         print(f"[TIME] output {i + 1}/{args.num_outputs} elapsed={output_elapsed_text} ({output_elapsed_seconds:.2f}s)")
 
+    if args.output_name:
+        apply_output_name(run_dir, metadata, sanitize_path_component(args.output_name), args.output_format)
     (run_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     prompt_used_path = run_dir / "prompt_used.txt"
     prompt_used_path.write_text(cfg["user_prompt"], encoding="utf-8")

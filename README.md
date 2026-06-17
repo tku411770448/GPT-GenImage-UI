@@ -108,6 +108,8 @@ step indexes for compatibility with existing project state files.
 - Duplicating a project copies its project state and class workspace artifacts so the
   new card opens with the same existing content.
 - Homepage project cards use green for defect projects and blue for food projects.
+- The currently selected project card is outlined with a red border so the active
+  selection is easy to spot among the mode-colored cards.
 - Project names must be unique.
 - Reopening a project returns to the mode homepage while preserving completed-step state and
   existing artifacts.
@@ -212,6 +214,17 @@ modes/food/project_food/<project_name>/runs/<class_name>/<run_name>/
 Each run keeps final generated images plus metadata such as prompts, placement records,
 bounding boxes, and logs. Temporary masks and previews are cleaned unless intermediate
 files are explicitly kept.
+
+Each generated image is stored in a per-image child folder, and both the folder and the
+final image file are named `<original_image_name>_<YYYY年MM月DD日HH時MM分>_<counter>`:
+
+- The `YYYY年MM月DD日HH時MM分` timestamp is the moment the generation step started. It is
+  captured once per batch (persisted in `batch_start_stamp.txt`) and stays identical for
+  every image in that run.
+- `<counter>` starts at 1 and increases by one for each generated image, so names never
+  repeat and previously generated images are never overwritten.
+- The seed value still drives local placement randomness internally but no longer appears
+  in the generated image file name.
 
 ### Step 9: Export
 

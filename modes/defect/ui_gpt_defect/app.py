@@ -3179,7 +3179,7 @@ class MainWindow(QMainWindow):
             #ProjectCard[mode="defect"] { border: 3px solid #10b981; }
             #ProjectCard[mode="food"] { border: 3px solid #2563eb; }
             #ProjectCard:hover { border: 3px solid #3b82f6; background: #f8fbff; }
-            #ProjectCard[selected="true"] { border: 4px solid #2563eb; }
+            #ProjectCard[selected="true"] { border: 4px solid #ef4444; }
             #ActiveProjectLabel { background: #e0f2fe; color: #0f172a; border: 1px solid #93c5fd; border-radius: 12px; padding: 10px 14px; font-weight: 700; }
             #ProjectCardHeader { background: #a7f3d0; border-top-left-radius: 16px; border-top-right-radius: 16px; padding: 10px; }
             #ProjectCardHeader[mode="defect"] { background: #a7f3d0; }
@@ -5514,7 +5514,7 @@ class MainWindow(QMainWindow):
             for root in roots:
                 if root.exists():
                     for p in root.rglob("*"):
-                        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS and re.match(r"^(edited|generated|repaired)_seed", p.name):
+                        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS and (re.match(r"^(edited|generated|repaired)_seed", p.name) or p.stem == p.parent.name):
                             found.append(p.resolve())
         seen: set[str] = set()
         unique: list[Path] = []

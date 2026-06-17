@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_gpt_image2 import SUPPORTED_GPT_IMAGE_MODELS, project_root, sanitize_defect_type, sanitize_name
+from run_gpt_image2 import SUPPORTED_GPT_IMAGE_MODELS, project_root, sanitize_defect_type, sanitize_name, sanitize_path_component
 
 SUPPORTED = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"]
 
@@ -56,19 +57,38 @@ def make_batch_run_name(base_run_name: str | None) -> str:
     return "run_" + datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def make_child_run_name(image_stem: str, seed: int) -> str:
-    """Create one child folder per output seed inside the batch run folder."""
-    return sanitize_name(f"{image_stem}_seed{seed}")
+def make_child_run_name(image_stem: str, time_label: str, counter: int) -> str:
+    """Create one child folder per generated image inside the batch run folder.
+
+    Naming scheme: ``<image_stem>_<time_label>_<counter>`` where ``time_label`` is
+    the fixed moment the generation step started (YYYY年MM月DD日HH時MM分) and
+    ``counter`` starts at 1 and increases by one per generated image, so child
+    names never repeat or overwrite earlier outputs."""
+    return sanitize_path_component(f"{image_stem}_{time_label}_{counter}")
 
 
 def child_run_has_successful_output(child_dir: Path) -> bool:
-    """Return True when a child run already contains a final generated image."""
+    """Return True when a child run already contains a final generated image.
+
+    Detection is metadata-driven first (the recorded final_outputs/outputs paths),
+    then falls back to the legacy ``edited_seed*`` prefixes and to the current UI
+    scheme where the final image file base equals its child-run folder name."""
     if not child_dir.exists():
         return False
+    meta_path = child_dir / "metadata.json"
+    if meta_path.exists():
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            for out in (data.get("final_outputs") or data.get("outputs") or []):
+                if Path(str(out)).exists():
+                    return True
+        except Exception:
+            pass
     final_prefixes = ("edited_seed", "generated_seed", "repaired_seed")
     for path in child_dir.rglob("*"):
-        if path.is_file() and path.suffix.lower() in SUPPORTED and path.name.startswith(final_prefixes):
-            return True
+        if path.is_file() and path.suffix.lower() in SUPPORTED:
+            if path.name.startswith(final_prefixes) or path.stem == child_dir.name:
+                return True
     return False
 
 
@@ -233,13 +253,37 @@ def main() -> None:
     emitted = 0
     batch_run_name = make_batch_run_name(args.run_name)
     output_root = args.output_dir or root / "runs"
-    # Final structure: runs/<class_name>/<run_name>/<image_stem>_seedXXXX/<artifacts>
+    # Final structure: runs/<class_name>/<run_name>/<image_stem>_<timestamp>_<counter>/<artifacts>
     batch_output_root = output_root / defect_type / batch_run_name
+    batch_output_root.mkdir(parents=True, exist_ok=True)
+
+    # Capture the moment the user starts this generation step ONCE, and persist it
+    # so resuming the same batch reuses identical, non-overwriting child names. The
+    # year/month/day/hour/minute label stays fixed for every image in this batch;
+    # only the per-image counter increases.
+    stamp_path = batch_output_root / "batch_start_stamp.txt"
+    started_at = None
+    if stamp_path.exists():
+        try:
+            started_at = datetime.fromisoformat(stamp_path.read_text(encoding="utf-8").strip())
+        except Exception:
+            started_at = None
+    if started_at is None:
+        started_at = datetime.now()
+        try:
+            stamp_path.write_text(started_at.isoformat(timespec="seconds"), encoding="utf-8")
+        except Exception:
+            pass
+    time_label = (
+        f"{started_at.year}年{started_at.month:02d}月{started_at.day:02d}日"
+        f"{started_at.hour:02d}時{started_at.minute:02d}分"
+    )
 
     for idx, (img, mask, target_area, output_count) in enumerate(plan):
         for local_i in range(max(1, int(output_count))):
             seed = args.seed + emitted
-            child_run_name = make_child_run_name(img.stem, seed)
+            # counter starts at 1 and increments by one for every generated image.
+            child_run_name = make_child_run_name(img.stem, time_label, emitted + 1)
             child_run_dir = batch_output_root / child_run_name
             if args.resume_existing and child_run_has_successful_output(child_run_dir):
                 print(f"[SKIP] existing output: {child_run_name}", flush=True)
@@ -257,6 +301,7 @@ def main() -> None:
                 "--seed", str(seed),
                 "--num-outputs", "1",
                 "--run-name", child_run_name,
+                "--output-name", child_run_name,
                 "--batch-run-name", batch_run_name,
                 "--output-dir", str(batch_output_root),
                 "--model", args.model,
