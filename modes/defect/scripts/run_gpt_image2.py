@@ -68,8 +68,12 @@ def load_dotenv_key(root: Path) -> None:
 def sanitize_defect_type(name: str | None) -> str:
     if name is None:
         return "custom"
+    # Preserve Unicode (e.g. CJK class names like 毛邊) while keeping the value safe to use
+    # as a path component. Only collapse whitespace and strip characters that are illegal
+    # in Windows/Unix file names -- do NOT drop non-ASCII letters, which would wipe out a
+    # Chinese class name and wrongly raise "defect_type cannot be empty".
     s = str(name).strip().replace(" ", "_")
-    s = re.sub(r"[^A-Za-z0-9_.-]+", "_", s)
+    s = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", s)
     s = re.sub(r"_+", "_", s).strip("._-")
     if not s:
         raise ValueError("defect_type cannot be empty")
