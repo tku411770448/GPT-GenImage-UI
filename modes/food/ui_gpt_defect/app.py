@@ -4717,7 +4717,7 @@ class MainWindow(QMainWindow):
             ret = QMessageBox.question(
                 self,
                 "直接使用原圖",
-                "此動作會清除目前 Step 3 輸入裁切圖、繪製完成的 Target Area ，並把原圖直接複製到 Step 3 使用。既有的 runs 會保留。是否繼續？",
+                "此動作會清除目前 Step 3 輸入裁切圖，並把原圖直接複製到 Step 4 使用。既有的 runs 會保留。是否繼續？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if ret != QMessageBox.StandardButton.Yes:
@@ -4785,7 +4785,7 @@ class MainWindow(QMainWindow):
             ret = QMessageBox.question(
                 self,
                 "改用裁切圖",
-                "此動作會清除目前 Step 3 輸入原圖、繪製完成的 Target Area ，並把裁切圖直接複製到 Step 3 使用。既有的 runs 會保留。是否繼續？",
+                "此動作會清除目前 Step 3 輸入原圖，並把裁切圖直接複製到 Step 4 使用。既有的 runs 會保留。是否繼續？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if ret != QMessageBox.StandardButton.Yes:
