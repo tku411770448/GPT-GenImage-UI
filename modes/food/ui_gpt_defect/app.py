@@ -666,6 +666,28 @@ class CenteredThumbGrid(ThumbGrid):
         for i in range(self.count()):
             self.item(i).setTextAlignment(Qt.AlignCenter)
 
+    def wheelEvent(self, event):  # noqa: N802
+        # Hovering this grid and scrolling moves the selection (wheel down = next image,
+        # wheel up = previous image) without an explicit click, so the middle crop-frame
+        # preview and the crop preview box update to the corresponding image.
+        if self.count() <= 0:
+            super().wheelEvent(event)
+            return
+        delta = event.angleDelta().y() or event.angleDelta().x()
+        if delta == 0:
+            super().wheelEvent(event)
+            return
+        step = 1 if delta < 0 else -1
+        current = self.currentRow()
+        if current < 0:
+            nxt = 0 if step > 0 else self.count() - 1
+        else:
+            nxt = max(0, min(self.count() - 1, current + step))
+        if nxt != self.currentRow():
+            self.setCurrentRow(nxt)
+        self.scrollToItem(self.item(nxt), QListWidget.PositionAtCenter)
+        event.accept()
+
 
 
 class VerticalThumbGrid(ThumbGrid):
@@ -3017,7 +3039,12 @@ class MainWindow(QMainWindow):
         del_crop_btn = QPushButton("刪除選取裁切圖")
         del_crop_btn.setObjectName("DangerButton")
         del_crop_btn.clicked.connect(self.safe_action("delete_selected_crop", self.delete_selected_crop))
-        right.addWidget(del_crop_btn)
+        del_all_crop_btn = QPushButton("刪除所有裁切圖")
+        del_all_crop_btn.setObjectName("DangerButton")
+        del_all_crop_btn.clicked.connect(self.safe_action("delete_all_crops", self.delete_all_crops))
+        del_btn_row = QHBoxLayout(); del_btn_row.setContentsMargins(0, 0, 0, 0); del_btn_row.setSpacing(8)
+        del_btn_row.addWidget(del_crop_btn); del_btn_row.addWidget(del_all_crop_btn)
+        right.addLayout(del_btn_row)
         self.crop_done_preview = ImagePreview("尚無 Step 3 輸入圖像")
         right.addWidget(self.crop_done_preview, 1)
 
@@ -4917,6 +4944,20 @@ class MainWindow(QMainWindow):
         if hasattr(self, "crop_done_preview"):
             self.crop_done_preview.clear("尚無裁切完成圖" if not remaining_crops else "請選擇裁切完成圖")
         self.refresh_crops(auto_select=False); self.refresh_region_thumbs(); self.mark_dirty(3)
+
+    def delete_all_crops(self) -> None:
+        if not (hasattr(self, "crop_done_grid") and self.crop_done_grid.count()):
+            QMessageBox.information(self, "Info", "目前沒有可刪除的裁切圖。")
+            return
+        # Remove every Step 3 input crop together with its Target Area, mask, and
+        # crop-record artifacts. Existing runs are preserved.
+        self.clear_downstream_generation_artifacts(clear_inputs=True, clear_runs_exports=False)
+        if hasattr(self, "crop_canvas"):
+            self.crop_canvas.set_image(None)
+        if hasattr(self, "crop_done_preview"):
+            self.crop_done_preview.clear("尚無 Step 3 輸入圖像")
+        self.refresh_crops(auto_select=False); self.refresh_region_thumbs(); self.refresh_prompt_groups(); self.mark_dirty(3)
+        self.status_label.setText("Status: 已刪除所有 Step 3 輸入裁切圖。")
 
     # ---------- regions ----------
     def region_select_crop_image(self, path_str: str) -> None:

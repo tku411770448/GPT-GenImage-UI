@@ -147,6 +147,12 @@ modes/food/project_food/<project_name>/data/00_raw_images/<class_name>/
   - If original inputs already exist and you start cropping, a dialog warns that those
     originals and any drawn ROI / Target Area will be cleared before cropping begins;
     cropping only proceeds after you confirm. Existing runs are preserved.
+- In the right-hand input list, hovering the list and scrolling the mouse wheel switches
+  the selected image without clicking (wheel down = next image, wheel up = previous
+  image); the middle crop-frame preview and the crop preview box both update to match.
+- The input list has two delete buttons side by side: `刪除選取裁切圖` removes the selected
+  inputs, and `刪除所有裁切圖` removes every input together with its ROI / Target Area and
+  mask artifacts. Existing runs are preserved by both.
 - Existing generation runs and exports are preserved when adding more inputs.
 - Prepared inputs are stored under:
 
