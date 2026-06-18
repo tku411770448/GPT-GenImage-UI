@@ -37,6 +37,11 @@ results/
 # Per-mode runtime project data lives under modes/<mode>/project/ (ignored at any depth).
 project/
 **/project/
+# Legacy runtime folder names kept ignored for backward compatibility.
+project_defect/
+project_food/
+**/project_defect/
+**/project_food/
 
 # Project-generated images and UI byproducts
 project/**/*.png

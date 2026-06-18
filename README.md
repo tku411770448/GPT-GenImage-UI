@@ -213,16 +213,17 @@ Useful shortcuts in this step include:
 
 ### Step 5: Prompt
 
-- This step now contains only the `輸入指令` (prompt input) section. The old
-  `引用組別` (group multi-select), `Prompt 來源設定` (mode / template), and
-  `實際傳送指令` (read-only preview) sections have been removed.
-- The prompt input uses an enlarged font.
+- The original `Prompt 編輯` layout is kept: the `引用組別` (group multi-select, with
+  an `ALL` option), the `Prompt 來源設定` (custom / template mode + `套用模板到輸入指令`),
+  and the `輸入指令` (prompt input) section. Their interaction logic is unchanged.
+- Only the `實際傳送指令` (read-only preview) section has been removed; the `輸入指令`
+  section now spans the full width below and uses an enlarged font.
+- Use Ctrl/Shift multi-select in `引用組別`; a batch is limited to at most 16 groups.
+  The chosen groups are the final inputs sent to generation (passed to the backend as a
+  selected-stems file written under `runs/`, not under `data/`).
 - The prompt that is sent equals the `輸入指令` text exactly. It is no longer combined
   with ROI / Target Area coordinate text; for defect mode those positions are provided
   visually through the annotation-reference image (Image 2) during generation.
-- Because group selection was removed, generation uses ALL prepared input images:
-  every image in `data/` for food, and every image in `data/raw_image/` that has a
-  matching `data/reference_image/` for defect.
 - The prompt actually sent for a run is recorded as `runs/<run_name>/prompt.txt`.
 
 ### Step 6: Model Parameters

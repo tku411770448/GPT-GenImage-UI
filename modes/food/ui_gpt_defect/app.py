@@ -3171,11 +3171,33 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout()
         lay.addWidget(self.header("Step 5｜Prompt 編輯", ""))
 
+        group_box = QGroupBox("引用組別")
+        group_lay = QVBoxLayout(group_box)
+        self.prompt_group_grid = PromptGroupList(); self.prompt_group_grid.group_changed.connect(self.safe_slot("prompt_group_selected", self.on_prompt_group_selected)); self.prompt_group_grid.group_selection_changed.connect(self.safe_slot("prompt_group_selection_changed", self.on_prompt_group_selection_changed))
+        self.prompt_group_grid.setMaximumHeight(180)
+        group_lay.addWidget(self.prompt_group_grid)
+        self.prompt_selection_status = QLabel("已選定：0/16 組")
+        self.prompt_selection_status.setObjectName("ProgressStatus")
+        group_lay.addWidget(self.prompt_selection_status)
+        lay.addWidget(group_box, 0)
+
+        mode_box = QGroupBox("Prompt 來源設定"); mg = QGridLayout(mode_box); mg.setColumnStretch(1,1); mg.setColumnStretch(2,1)
+        self.prompt_mode_combo = QComboBox(); self.prompt_mode_combo.addItems(["自訂 prompt", "使用模板"]); self.prompt_mode_combo.setCurrentText("使用模板" if self.state.prompt_mode == "template" else "自訂 prompt")
+        self.prompt_template_label = QLabel("模板樣式"); self.prompt_template_combo = QComboBox(); self.prompt_template_combo.addItems(["食物變化"]); self.prompt_template_combo.setCurrentText(self.state.prompt_template if self.state.prompt_template in ["食物變化"] else "食物變化")
+        self.apply_template_btn = QPushButton("套用模板到輸入指令"); self.apply_template_btn.clicked.connect(self.safe_action("apply_prompt_template", self.apply_prompt_template))
+        self.prompt_mode_combo.currentTextChanged.connect(self.safe_slot("prompt_mode_changed", lambda *_: self.on_prompt_mode_changed()))
+        mg.addWidget(QLabel("Prompt 模式"),0,0); mg.addWidget(self.prompt_mode_combo,0,1,1,2)
+        mg.addWidget(self.prompt_template_label,1,0); mg.addWidget(self.prompt_template_combo,1,1); mg.addWidget(self.apply_template_btn,1,2)
+        lay.addWidget(mode_box, 0)
+
+        # Only the 輸入指令 section remains below; it fills the rest of the page and
+        # uses an enlarged font. The 實際傳送指令 preview section was removed.
         left = QGroupBox("輸入指令"); left_lay = QVBoxLayout(left)
         self.prompt_edit = QPlainTextEdit(); self.prompt_edit.setMinimumHeight(360)
         self.prompt_edit.setStyleSheet("font-size: 20px;")
         self.prompt_edit.textChanged.connect(self.safe_action("prompt_text_changed", self.on_prompt_text_changed)); left_lay.addWidget(self.prompt_edit)
         lay.addWidget(left, 2)
+        self.on_prompt_mode_changed()
         return self.wrap_page(5, lay)
 
     def page_model(self) -> QWidget:
@@ -4839,29 +4861,30 @@ class MainWindow(QMainWindow):
         return list_images(self.inputs_dir())
 
     def selected_region_image_paths(self) -> list[Path]:
-        """Images sent to generation.
+        """Final input images sent to generation = the groups chosen in 引用組別.
 
-        The group-selection UI has been removed, so generation uses every prepared
-        input image. If an explicit stored selection exists and still matches files
-        on disk, it is honored; otherwise all input images are returned.
+        Maps the user's 引用組別 selection (state.selected_region_stems) to the
+        prepared input images, capped at 16. Empty when nothing is selected, so
+        Step 5 enforces an explicit selection before generation.
         """
         all_paths = list_images(self.inputs_dir())
-        stems = [str(x) for x in getattr(self.state, "selected_region_stems", []) if str(x)]
-        has_grid = hasattr(self, "prompt_group_grid")
-        if stems and has_grid:
-            allowed = set(stems)
-            matched = [p for p in all_paths if p.stem in allowed]
-            if matched:
-                return matched
-        return all_paths
+        by_stem = {p.stem: p for p in all_paths}
+        stems = [s for s in getattr(self.state, "selected_region_stems", []) if s in by_stem]
+        return [by_stem[s] for s in stems][:16]
 
     def selected_region_stems_file(self) -> Path:
-        return self.class_config_dir() / "selected_region_stems.txt"
+        # Transient generation input; kept out of data/ so the data folder only
+        # holds images. Lives next to the run outputs.
+        return ensure_dir(self.project_dir() / "runs") / ".selected_region_stems.txt"
 
     def write_selected_region_stems_file(self) -> Path:
-        # No longer used by generation (all images are passed and no
-        # --selected-stems-file is sent). Kept as a harmless no-op.
-        return self.selected_region_stems_file()
+        paths = self.selected_region_image_paths()
+        stems = [p.stem for p in paths][:16]
+        self.state.selected_region_stems = stems
+        out = self.selected_region_stems_file()
+        out.write_text("\n".join(stems) + ("\n" if stems else ""), encoding="utf-8")
+        self.save_state()
+        return out
 
     def update_region_selection_status(self) -> None:
         if hasattr(self, "region_selection_status"):
@@ -5563,6 +5586,10 @@ class MainWindow(QMainWindow):
             "--num-outputs","1","--total-outputs",str(self.state.num_outputs),
             "--prompt",(self.state.prompt_input or ""),
         ]
+        # Honor the 引用組別 selection: only the chosen groups are generated.
+        selected_file = self.write_selected_region_stems_file()
+        if selected_file.exists():
+            cmd += ["--selected-stems-file", str(selected_file)]
         if self.state.run_name:
             cmd += ["--run-name", self.state.run_name]
         if resume_existing:
@@ -5611,7 +5638,9 @@ class MainWindow(QMainWindow):
         if not list_images(self.inputs_dir()): QMessageBox.warning(self,"Missing","請先完成裁切或使用原始圖片。") ; return
         selected_paths = self.selected_region_image_paths()
         if not selected_paths:
-            QMessageBox.warning(self,"Missing","請先完成裁切或使用原始圖片。") ; return
+            QMessageBox.warning(self,"Missing","請先在 Prompt『引用組別』選定 1～16 組圖像。") ; return
+        if len(selected_paths) > 16:
+            QMessageBox.warning(self,"超過上限","Prompt 最終輸入組合一次最多只能選定 16 組。") ; return
         if not self.read_env_key(): QMessageBox.warning(self,"Missing","OPENAI_API_KEY 尚未設定，請先到 Step 1 儲存共用 API Key。") ; return
         if not self.check_generation_runtime(): return
         try: self.generation_stop_file().unlink()

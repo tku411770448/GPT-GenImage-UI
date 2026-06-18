@@ -119,11 +119,13 @@ project/<project_name>/data/
 
 ### Step 3: Prompt
 
-- This step contains only the `輸入指令` (prompt input) section, with an enlarged font.
-  The old `引用組別` group multi-select, `Prompt 來源設定`, and `實際傳送指令` preview
-  sections have been removed.
+- The original layout is kept: `引用組別` (group multi-select with an `ALL` option),
+  `Prompt 來源設定` (custom / template + `套用模板到輸入指令`), and the `輸入指令` section.
+  Only the `實際傳送指令` preview was removed; `輸入指令` now fills the width below with an
+  enlarged font.
+- Use Ctrl/Shift multi-select in `引用組別` (max 16 groups); the chosen groups are the
+  images sent to generation (selected-stems file written under `runs/`, not `data/`).
 - The prompt that is sent equals the `輸入指令` text exactly.
-- Because group selection was removed, generation uses ALL images in `data/`.
 - The prompt actually sent for a run is recorded as `runs/<run_name>/prompt.txt`.
 
 ### Step 4: Model Parameters
