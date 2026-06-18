@@ -16,9 +16,9 @@ env/
 # VS Code local settings
 .vscode/
 
-# Logs (single shared log file at the repo root + any stray logs folders)
+# Logs (single shared log file log.txt at the repo root + any stray logs folders)
 *.log
-genui.log
+log.txt
 logs/
 
 # Temporary files

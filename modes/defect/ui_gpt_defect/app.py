@@ -2072,6 +2072,7 @@ class UIState:
     last_active_step: int = 0
     generation_status: str = "idle"
     aggregate_summary: str = ""
+    run_history: str = ""
     regions: dict = field(default_factory=dict)
     last_generation_return_code: int = 0
     last_generation_error: str = ""
@@ -2713,7 +2714,7 @@ class MainWindow(QMainWindow):
         return self.exports_dir() / self.current_export_name()
 
     def app_log_path(self) -> Path:
-        return self.root.parent.parent / "genui.log"
+        return self.root.parent.parent / "log.txt"
 
     def log_event(self, message: str) -> None:
         try:
@@ -2724,6 +2725,42 @@ class MainWindow(QMainWindow):
 
     def generation_stop_file(self) -> Path:
         return self.project_dir() / "runs" / ".stop_request"
+
+    def append_run_record(self, outcome: str) -> None:
+        """Append one run's record + status to project_state.json (run_history).
+
+        Every run is kept (not only the latest); records are separated by a fixed
+        banner so the accumulated history stays readable inside the JSON string."""
+        separator = "<<================================================>>"
+        try:
+            # Capture the run's facts BEFORE build_aggregate_text(), which calls
+            # update_state_from_widgets() and could otherwise overwrite run_name.
+            run_name = self.state.run_name or "-"
+            completed = self.generation_completed
+            total = self.generation_total
+            return_code = self.state.last_generation_return_code
+            est_cost = self.state.estimated_run_cost_usd
+            act_cost = self.state.actual_run_cost_usd
+            ts = datetime.now().isoformat(timespec="seconds")
+            try:
+                settings = self.build_aggregate_text()
+            except Exception:
+                settings = self.state.aggregate_summary or ""
+            block = (
+                f"Run：{run_name}\n"
+                f"結束時間：{ts}\n"
+                f"狀態：{outcome}\n"
+                f"完成張數：{completed} / {total}\n"
+                f"Return code：{return_code}\n"
+                f"預估成本 USD：{est_cost}\n"
+                f"實際成本 USD：{act_cost}\n"
+                f"----- 本次設定 -----\n{settings}"
+            )
+            prev = (self.state.run_history or "").rstrip()
+            self.state.run_history = (prev + "\n" + separator + "\n" + block) if prev else block
+            self.save_state()
+        except Exception as exc:
+            self._log_ui_exception("append_run_record", exc)
 
     # ---------- UI construction ----------
     def build_ui(self) -> None:
@@ -4947,19 +4984,15 @@ class MainWindow(QMainWindow):
         stems = [s for s in getattr(self.state, "selected_region_stems", []) if s in by_stem]
         return [by_stem[s] for s in stems][:16]
 
-    def selected_region_stems_file(self) -> Path:
-        # Transient generation input; kept out of data/ so the data folder only
-        # holds raw_image/ and reference_image/. Lives next to the run outputs.
-        return ensure_dir(self.project_dir() / "runs") / ".selected_region_stems.txt"
+    def selected_region_stems(self) -> list[str]:
+        """Persist and return the 引用組別 selection as image stems (no file on disk).
 
-    def write_selected_region_stems_file(self) -> Path:
-        paths = self.selected_region_image_paths()
-        stems = [p.stem for p in paths][:16]
+        The selection is passed to the backend inline via --selected-stems, so no
+        .selected_region_stems.txt is written anywhere."""
+        stems = [p.stem for p in self.selected_region_image_paths()][:16]
         self.state.selected_region_stems = stems
-        out = self.selected_region_stems_file()
-        out.write_text("\n".join(stems) + ("\n" if stems else ""), encoding="utf-8")
         self.save_state()
-        return out
+        return stems
 
     def update_region_selection_status(self) -> None:
         if hasattr(self, "region_selection_status"):
@@ -5721,10 +5754,11 @@ class MainWindow(QMainWindow):
             "--min-defects","1","--max-defects","4",
             "--prompt",(self.state.prompt_input or ""),
         ]
-        # Honor the 引用組別 selection: only the chosen groups are generated.
-        selected_file = self.write_selected_region_stems_file()
-        if selected_file.exists():
-            cmd += ["--selected-stems-file", str(selected_file)]
+        # Honor the 引用組別 selection: only the chosen groups are generated. The
+        # selection is passed inline (no .selected_region_stems.txt file on disk).
+        stems = self.selected_region_stems()
+        if stems:
+            cmd += ["--selected-stems", *stems]
         if self.state.run_name:
             cmd += ["--run-name", self.state.run_name]
         if resume_existing:
@@ -5824,6 +5858,7 @@ class MainWindow(QMainWindow):
                 self.save_state()
                 self.update_step_buttons()
                 self.set_generation_progress(min(len(outputs), self.generation_total), f"生成完成：找到 {len(outputs)} 張輸出圖。")
+                self.append_run_record(f"成功（{len(outputs)} 張）")
             else:
                 self.state.generation_status = "no_outputs"
                 self.state.completed_steps[8] = False
@@ -5831,6 +5866,7 @@ class MainWindow(QMainWindow):
                 self.save_state()
                 self.update_step_buttons()
                 self.set_generation_progress(0, "生成程序結束，但沒有找到任何輸出圖；Step 8 不會被標記完成。")
+                self.append_run_record("結束但無輸出")
                 QMessageBox.warning(self, "No output", "生成程序結束，但沒有找到任何輸出圖。請查看下方 log。")
         self.run_command(cmd,"generation",on_finished=_after_generation)
 
@@ -6144,6 +6180,7 @@ class MainWindow(QMainWindow):
                         except Exception: pass
                         self.save_state(); self.update_step_buttons()
                         self.log_event(f"generation paused at {done}/{self.generation_total}")
+                        self.append_run_record(f"已暫停（完成 {done} / {self.generation_total}）")
                         self.current_process = None; self.current_process_label = ""
                         self.set_generation_ui_locked(False)
                         QMessageBox.information(self, "已暫停", f"現在生成至第 {done} 張，還剩 {remaining} 張尚未生成，已暫停")
@@ -6155,6 +6192,7 @@ class MainWindow(QMainWindow):
                         self.show_generation_failure_dialog(int(code))
                         self.save_state(); self.update_step_buttons()
                         self.log_event(f"generation failed (code={code})")
+                        self.append_run_record(f"失敗（code={int(code)}）")
                     else:
                         self.set_generation_progress(max(1,self.generation_total),f"生成程序完成，正在檢查輸出圖。")
                         self.log_event("generation finished: success")
@@ -6313,7 +6351,7 @@ def main() -> None:
     root = project_root()
     app = QApplication(sys.argv)
     # Single shared log file at the repo root (replaces the old logs/ folder).
-    app_log = root.parent.parent / "genui.log"
+    app_log = root.parent.parent / "log.txt"
     try:
         crash_log = app_log.open("a", encoding="utf-8")
         faulthandler.enable(file=crash_log, all_threads=True)

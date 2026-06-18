@@ -7,7 +7,7 @@ inputs, runs, and state under `project/<project_name>/`.
 
 Class Name is configured when a project is created, and the OpenAI API key is shared
 by all projects from the homepage. Key execution nodes and error/crash diagnostics
-are written to a single shared `genui.log` at the repo root.
+are written to a single shared `log.txt` at the repo root.
 
 ---
 
@@ -124,7 +124,7 @@ project/<project_name>/data/
   Only the `實際傳送指令` preview was removed; `輸入指令` now fills the width below with an
   enlarged font.
 - Use Ctrl/Shift multi-select in `引用組別` (max 16 groups); the chosen groups are the
-  images sent to generation (selected-stems file written under `runs/`, not `data/`).
+  images sent to generation (passed inline via `--selected-stems`; no stems file on disk).
 - The prompt that is sent equals the `輸入指令` text exactly.
 - The prompt actually sent for a run is recorded as `runs/<run_name>/prompt.txt`.
 
@@ -148,6 +148,9 @@ aspect ratio, and supported total pixel range. The output-folder field is labell
   `輸出資料夾名稱`.
 - The aggregate summary is stored inside `project_state.json` (an `aggregate_summary`
   field). There is no per-project `logs/` folder.
+- `project_state.json` also keeps a `run_history` field that accumulates every run's
+  record and final status (not just the latest), separated by a fixed banner
+  (`<<================================================>>`).
 
 ### Step 6: Run Generation
 
@@ -181,7 +184,7 @@ Each run folder contains only `Gen_Images/`, `generation_summary.xlsx`
 ## 5. Project Files and Generated Artifacts
 
 Runtime data lives under `project/` (ignored by Git at any depth). Git also ignores
-`runs/`, `exports/`, the shared `genui.log` and any `logs/` folders, zip/tar archives,
+`runs/`, `exports/`, the shared `log.txt` and any `logs/` folders, zip/tar archives,
 and `.env` / key files.
 
 A project folder contains EXACTLY `data/`, `runs/`, and `project_state.json` — no

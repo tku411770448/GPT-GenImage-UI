@@ -306,6 +306,7 @@ def main() -> None:
     p.add_argument("--target-area-dir", type=Path, default=None)
     p.add_argument("--reference-dir", type=Path, default=None, help="Folder of pre-rendered ROI/Target annotation reference images (Image 2), matched to each input image by stem. When provided, reference-guided-edit pairs each raw image with its reference and does not need separate masks.")
     p.add_argument("--selected-stems-file", type=Path, default=None, help="Optional newline-delimited image stems to include in this batch. Used by UI Step 4 multi-selection.")
+    p.add_argument("--selected-stems", nargs="*", default=None, help="Image stems to include, passed inline (alternative to --selected-stems-file) so no stems file is written to disk.")
     p.add_argument("--workflow", choices=["reference-guided-edit", "prompt-only-edit", "repair-and-random-generate", "repair-only", "generate-only"], default="reference-guided-edit")
     p.add_argument("--placement-mode", choices=["fixed-mask", "random-in-target"], default="random-in-target")
     p.add_argument("--seed", type=int, default=5000)
@@ -366,10 +367,13 @@ def main() -> None:
         raise SystemExit(f"Images folder not found: {images_dir}\nPlease prepare inputs in the UI (Step 2 upload and Step 3 crop / use original) before generating.")
 
     images = list_images(images_dir)
+    selected_stems = None
     if args.selected_stems_file and args.selected_stems_file.exists():
         selected_stems = {line.strip() for line in args.selected_stems_file.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip()}
-        if selected_stems:
-            images = [img for img in images if img.stem in selected_stems]
+    elif args.selected_stems:
+        selected_stems = {s.strip() for s in args.selected_stems if s.strip()}
+    if selected_stems:
+        images = [img for img in images if img.stem in selected_stems]
     if not images:
         raise SystemExit(f"No images found in: {images_dir}")
 

@@ -231,7 +231,7 @@ def main() -> None:
     root = project_root()
     app = QApplication.instance() or QApplication(sys.argv)
     # Single shared log file at the repo root (replaces the old logs/ folder).
-    app_log = root / "genui.log"
+    app_log = root / "log.txt"
     try:
         crash_log = app_log.open("a", encoding="utf-8")
         faulthandler.enable(file=crash_log, all_threads=True)

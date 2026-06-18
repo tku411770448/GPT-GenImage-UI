@@ -15,7 +15,7 @@ guided workflow. The mode homepage is shown as `Step 1`, followed by the remaini
 workflow steps. Project-specific inputs, runs, and state are kept under each mode's
 runtime project folder at `modes/<mode>/project/<project_name>/`. Key execution
 nodes and any error/crash diagnostics are written to a single shared log file at the
-repo root, `genui.log`.
+repo root, `log.txt`.
 
 ---
 
@@ -219,8 +219,8 @@ Useful shortcuts in this step include:
 - Only the `實際傳送指令` (read-only preview) section has been removed; the `輸入指令`
   section now spans the full width below and uses an enlarged font.
 - Use Ctrl/Shift multi-select in `引用組別`; a batch is limited to at most 16 groups.
-  The chosen groups are the final inputs sent to generation (passed to the backend as a
-  selected-stems file written under `runs/`, not under `data/`).
+  The chosen groups are the final inputs sent to generation (passed to the backend
+  inline via `--selected-stems`; no stems file is written to disk).
 - The prompt that is sent equals the `輸入指令` text exactly. It is no longer combined
   with ROI / Target Area coordinate text; for defect mode those positions are provided
   visually through the annotation-reference image (Image 2) during generation.
@@ -252,6 +252,11 @@ fallback; nothing is cached to disk.
   quality, size, output count, and `輸出資料夾名稱`.
 - The aggregate summary is stored inside the project's `project_state.json` (an
   `aggregate_summary` field). There is no per-project `logs/` folder.
+- `project_state.json` also keeps a `run_history` field that accumulates EVERY run's
+  record and final status (success / paused / failed / no-output), not just the most
+  recent one. Records are separated by a fixed banner
+  (`<<================================================>>`) so the full history stays
+  readable. A record is appended each time a generation finishes.
 
 ### Step 8: Run Generation
 
@@ -335,7 +340,7 @@ intentionally ignored by Git (matched at any depth). Git also ignores:
 
 - `project/` and `**/project/`
 - `runs/` and `exports/`
-- the single shared `genui.log` plus any stray `logs/` folders
+- the single shared `log.txt` plus any stray `logs/` folders
 - zip/tar archives
 - `.env` and key files
 
@@ -362,7 +367,7 @@ state, the defect `regions` geometry map (keyed by image stem), and the
 `_launcher_state/launcher_state.json` have been removed and are no longer written.
 
 Logging: key execution nodes (project created/opened, generation start/finish/pause)
-and error/crash diagnostics are appended to a single shared `genui.log` at the repo
+and error/crash diagnostics are appended to a single shared `log.txt` at the repo
 root. There is no longer a top-level `logs/` folder or per-project `logs/` folders.
 
 There is no `configs/` folder anywhere; OpenAI pricing is fetched live with a built-in
