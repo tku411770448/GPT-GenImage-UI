@@ -137,6 +137,16 @@ modes/food/project_food/<project_name>/data/00_raw_images/<class_name>/
 
 - Either use original images directly or crop fixed-size inputs.
 - Crop width and height are UI input dimensions for preparing downstream inputs.
+- Switching between the two source styles only prompts when it would discard existing
+  work, and then actually clears the discarded products before continuing:
+  - On a brand-new / clean project (no Step 4 inputs yet), pressing 『使用原始圖片』 or
+    drawing the first crop runs silently with no confirmation dialog.
+  - If cropped inputs already exist and you press 『使用原始圖片』, a dialog warns that the
+    cropped inputs and any drawn ROI / Target Area will be cleared before the originals
+    are copied in. Existing runs are preserved.
+  - If original inputs already exist and you start cropping, a dialog warns that those
+    originals and any drawn ROI / Target Area will be cleared before cropping begins;
+    cropping only proceeds after you confirm. Existing runs are preserved.
 - Existing generation runs and exports are preserved when adding more inputs.
 - Prepared inputs are stored under:
 

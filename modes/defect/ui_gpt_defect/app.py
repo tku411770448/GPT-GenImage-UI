@@ -4679,16 +4679,37 @@ class MainWindow(QMainWindow):
         self.refresh_region_thumbs(); self.refresh_prompt_groups(); self.update_step_buttons()
         self.status_label.setText(f"Status: 已將原始圖片加入 Step 4 輸入圖像：{dst.name} ({w}*{h})")
 
+    def step4_input_modes(self) -> set[str]:
+        """Classify the current crop-step input images as original ('no_crop') vs cropped.
+
+        Used to decide whether switching between 「使用原始圖片」 and cropping needs a
+        confirmation prompt. A brand-new / clean project has no inputs (empty set), so no
+        prompt is shown; only an actual mode switch (cropped -> original or original ->
+        cropped) prompts the user and clears the previous products.
+        """
+        modes: set[str] = set()
+        for p in list_images(self.inputs_dir()):
+            rec = self.load_crop_record(p)
+            if rec.get("mode") == "no_crop":
+                modes.add("no_crop")
+            elif re.search(r"_crop\d+$", p.stem):
+                modes.add("crop")
+            else:
+                modes.add("no_crop")
+        return modes
+
     def use_original_images_without_crop(self, confirm: bool = True, mark_completed: bool = False, auto_select: bool = False) -> bool:
         raws = list_images(self.raw_dir())
         if not raws:
             QMessageBox.warning(self, "Missing", "請先在 Step 2 上傳原始圖片。")
             return False
-        if confirm:
+        # Only warn when there are previously cropped Step 4 inputs that this action would
+        # discard. A clean / first-time project (no cropped inputs) switches silently.
+        if confirm and ("crop" in self.step4_input_modes()):
             ret = QMessageBox.question(
                 self,
                 "直接使用原圖",
-                "此動作會清除目前 Step 4 輸入圖、ROI/Target Area 與 mask，並把原圖直接複製到 Step 4 使用。既有 runs 與 exports 會保留。是否繼續？",
+                "此動作會清除目前 Step 4 輸入裁切圖、繪製完成的 ROI 與 Target Area ，並把原圖直接複製到 Step 4 使用。既有的 runs 會保留。是否繼續？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if ret != QMessageBox.StandardButton.Yes:
@@ -4749,6 +4770,19 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Status: 已載入原圖。可在中間圖像進行裁切；若要全部原圖直接送入 Step 4，請按底部『使用原始圖片』。")
 
     def make_crop_from_rect(self, src: Path, rect: tuple[int,int,int,int]) -> Optional[Path]:
+        # Switching from 「使用原始圖片」 back to cropping must clear the previously copied
+        # originals (and their ROI/Target Area) before the first crop is committed. A clean
+        # project or one that is already in crop mode adds crops without any prompt.
+        if "no_crop" in self.step4_input_modes():
+            ret = QMessageBox.question(
+                self,
+                "改用裁切圖",
+                "此動作會清除目前 Step 4 輸入原圖、繪製完成的 ROI 與 Target Area ，並把裁切圖直接複製到 Step 4 使用。既有的 runs 會保留。是否繼續？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if ret != QMessageBox.StandardButton.Yes:
+                return None
+            self.clear_downstream_generation_artifacts(clear_inputs=True, clear_runs_exports=False)
         try:
             img=Image.open(src).convert("RGB"); crop=img.crop(rect); ensure_dir(self.inputs_dir())
             base=sanitize_name(src.stem); existing=len(list(self.inputs_dir().glob(f"{base}_crop*.png")))+1
