@@ -122,6 +122,10 @@ step indexes for compatibility with existing project state files.
 ### Step 2: Data Upload
 
 - Import source images through the file picker or drag-and-drop.
+- Each newly uploaded image becomes the previewed image immediately: dragging images
+  in one at a time always shows the most recently added image in the preview pane (no
+  need to click its filename in the list). Dropping a folder previews the last image in
+  that folder.
 - Uploaded originals are stored under:
 
 ```text

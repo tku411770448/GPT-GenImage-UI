@@ -4309,15 +4309,16 @@ class MainWindow(QMainWindow):
 
     def import_source_paths(self, paths: list[Path]) -> None:
         self.update_state_from_widgets(); self.init_workspace_silent(); count=0
+        last_imported: Optional[Path] = None
         for p in paths:
             if p.is_dir():
-                for img in list_images(p): copy_image_to(img, self.raw_dir()); count+=1
+                for img in list_images(p): last_imported = copy_image_to(img, self.raw_dir()); count+=1
             elif p.is_file() and p.suffix.lower() in SUPPORTED_EXTS:
-                copy_image_to(p, self.raw_dir()); count+=1
+                last_imported = copy_image_to(p, self.raw_dir()); count+=1
         if count:
             self.clear_downstream_generation_artifacts(clear_inputs=True)
             self.clear_all_visual_previews()
-        self.refresh_uploads(auto_select=True); self.refresh_raw_thumbs(); self.refresh_crops(); self.refresh_region_thumbs(); self.refresh_prompt_groups(); self.mark_dirty(2); self.status_label.setText(f"Status: imported {count} image(s); downstream Step 3～9 data cleared")
+        self.refresh_uploads(auto_select=True, select_path=last_imported); self.refresh_raw_thumbs(); self.refresh_crops(); self.refresh_region_thumbs(); self.refresh_prompt_groups(); self.mark_dirty(2); self.status_label.setText(f"Status: imported {count} image(s); downstream Step 3～9 data cleared")
 
     def delete_selected_uploads(self) -> None:
         for item in self.upload_list.selectedItems():
@@ -6209,10 +6210,15 @@ class MainWindow(QMainWindow):
             if hasattr(self,"output_list"): self.refresh_outputs()
         self.update_step_buttons()
 
-    def refresh_uploads(self, auto_select: bool=False)->None:
+    def refresh_uploads(self, auto_select: bool=False, select_path: Optional[Path]=None)->None:
         self.upload_list.clear()
         for p in list_images(self.raw_dir()):
             item=QListWidgetItem(p.name); item.setData(Qt.UserRole,str(p)); self.upload_list.addItem(item)
+        if select_path is not None:
+            target=select_path.name
+            for i in range(self.upload_list.count()):
+                if Path(self.upload_list.item(i).data(Qt.UserRole)).name == target:
+                    self.upload_list.setCurrentRow(i); return
         if auto_select and self.upload_list.count(): self.upload_list.setCurrentRow(0)
         elif not self.upload_list.selectedItems(): self.upload_preview.clear("尚無預覽，請選取圖片或直接拖曳圖片到此處。")
 
