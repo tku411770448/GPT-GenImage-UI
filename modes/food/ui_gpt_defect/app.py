@@ -828,7 +828,7 @@ class PromptGroupList(QListWidget):
             all_item = QListWidgetItem("全部圖像")
             all_item.setData(Qt.UserRole, "__ALL__")
             all_item.setIcon(self._make_all_icon())
-            all_item.setToolTip("快速選取所有 Step 3 輸入圖像；若超過 16 組，系統會要求縮減。")
+            all_item.setToolTip("快速選取所有 Step 4 輸入圖像；若超過 16 組，系統會要求縮減。")
             self.addItem(all_item)
 
         for p in valid_paths:
@@ -2180,7 +2180,7 @@ class MainWindow(QMainWindow):
         0: [("可在此新增、開啟、複製或刪除專案。新增專案時請選擇 Mode：Defect 走瑕疵資料流程，Food 走食物變化流程。專案卡綠色代表 Defect，藍色代表 Food。", False)],
         1: [("第一次使用請輸入 OpenAI API Key，按『儲存 / 替換 API Key』後會立即顯示是否已保存成功。", False), ("重要：若輸入不同 API Key，系統會先要求確認，避免誤改；套件版本檢查已省略。", True)],
         2: [("可拖曳圖片或資料夾上傳；刪除只會移除本專案複製檔，不會刪除原始圖片。", False), ("上方清單用來管理檔案；下方大預覽框用來檢查目前選取圖片。", False)],
-        3: [("先點選左側已上傳圖片縮圖，中間才會載入該原圖預覽。", False), ("若要保留全部原圖不裁切，請按底部 Back 與 Submit 之間的『使用原始圖片』；系統會把 Step 2 的全部上傳圖直接作為 Prompt 輸入並跳到 Prompt 編輯。", True), ("若需要裁切，請設定裁切框寬高後在中間圖像點選/拖曳裁切框，裁切結果會加入右側 Step 3 輸入圖像。裁切寬高僅作為輸入圖尺寸；建議值為 320(px)～1280(px)，真正的生成輸出尺寸限制在 Step 4。", False)],
+        3: [("先點選左側已上傳圖片縮圖，中間才會載入該原圖預覽。", False), ("若要保留全部原圖不裁切，請按底部 Back 與 Submit 之間的『使用原始圖片』；系統會把 Step 2 的全部上傳圖直接作為 Prompt 輸入並跳到 Prompt 編輯。", True), ("若需要裁切，請設定裁切框寬高後在中間圖像點選/拖曳裁切框，裁切結果會加入右側 Step 4 輸入圖像。裁切寬高僅作為輸入圖尺寸；建議值為 320(px)～1280(px)，真正的生成輸出尺寸限制在 Step 4。", False)],
         4: [("請針對每張輸入圖框選 Target Area。Target Area 代表允許食物姿態、方向、擺放位置或局部外觀變化的範圍。", False), ("本頁已啟用自動儲存：新增、刪除、切換 Target Area 後會自動寫入座標與 mask，不需要另外按儲存。", True), ("左側圖像清單可多選，但此處只用於 Step 4 檢視與快速切換；最終要送進生成的圖像組合改在 Step 5『引用組別』決定。", True), ("Target Area 支援多個區域、逐一選取刪除與全部刪除；重疊時會以聯集方式輸出到同一張 mask。", False), ("直線繪製 Target Area 時，請依序點選多個頂點，最後點回第一個點形成封閉區域；未封閉會提示重新繪製。", True), ("快捷鍵：T=矩形 Target、L=直線 Target、Y=選取 Target、G=刪除全部 Target、H=刪除選取 Target、↑/↓=上一張/下一張圖並同步左側縮圖選取。選取矩形 Target Area 後，可拖曳四角控制點調整寬高，也可拖曳左右邊中點水平調整寬度、上下邊中點垂直調整高度。", False), ("Ctrl + 滑鼠滾輪可縮放，滑鼠中鍵可平移；繪製時游標旁會顯示 Target Area，方便確認目前模式。Target Area 請精準包住食物或可變動區域，避開不希望被更動的背景、餐盤或桌面。", False)],
         5: [("請在上方『引用組別』用 Ctrl / Shift 多選最終要送入生成的圖像組合；一次最多 16 組，超過會提示並擋下。", True), ("自訂 prompt 預設空白；使用模板時請按『套用模板到輸入指令』。實際傳送指令只會包含 prompt 內容，不再合併 Target Area 座標。", False), ("生成會使用圖像與 prompt 直接進行食物圖像編輯；若需要指定位置，請在 prompt 中以自然語言描述食物或 class name 的位置。", False)],
         6: [("gpt-image-2 輸出尺寸限制：寬高皆需為 16 的倍數、長邊不可超過 3840 px、長寬比不可超過 3:1、總像素需介於 655,360 px～8,294,400 px。", True), ("已恢復正式檢查：按『確認參數並估算本次成本』時，無論是『自訂尺寸』或『與原圖尺寸相同』，只要低於下界、高於上界或比例不合規，都會跳出提示並阻止進入下一步。", True), ("例如 640×640 = 409,600 px，低於最低總像素限制；5472×3648 長邊超過 3840 px 且總像素過高。成本預估會嘗試讀取 OpenAI Pricing；實際金額仍以 API usage / 帳單為準。", False)],
@@ -3027,11 +3027,11 @@ class MainWindow(QMainWindow):
         mid.addWidget(QLabel("原尺寸圖像 / 固定裁切框"))
         self.crop_canvas = CropCanvas()
         self.crop_canvas.crop_callback = self.make_crop_from_rect
-        self.crop_canvas.crop_made.connect(self.safe_slot("crop_made_refresh", lambda *_: self.refresh_crops_for_current_raw(auto_select=True)))
+        self.crop_canvas.crop_made.connect(self.safe_slot("crop_made_refresh", lambda p="": self.refresh_crops(auto_select=True, select_path=(Path(p) if p else None))))
         mid.addWidget(self.crop_canvas, 1)
 
         right = QVBoxLayout()
-        right.addWidget(QLabel("Step 3 輸入圖像"))
+        right.addWidget(QLabel("Step 4 輸入圖像"))
         self.crop_done_grid = CenteredThumbGrid()
         self.crop_done_grid.setMinimumWidth(240)
         self.crop_done_grid.selected_path_changed.connect(self.safe_slot("crop_done_selected", self.on_crop_done_selected))
@@ -3045,7 +3045,7 @@ class MainWindow(QMainWindow):
         del_btn_row = QHBoxLayout(); del_btn_row.setContentsMargins(0, 0, 0, 0); del_btn_row.setSpacing(8)
         del_btn_row.addWidget(del_crop_btn); del_btn_row.addWidget(del_all_crop_btn)
         right.addLayout(del_btn_row)
-        self.crop_done_preview = ImagePreview("尚無 Step 3 輸入圖像")
+        self.crop_done_preview = ImagePreview("尚無 Step 4 輸入圖像")
         right.addWidget(self.crop_done_preview, 1)
 
         w1=QWidget(); w1.setLayout(left); w2=QWidget(); w2.setLayout(mid); w3=QWidget(); w3.setLayout(right)
@@ -4048,7 +4048,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "crop_canvas"):
                 self.crop_canvas.set_image(None)
             if hasattr(self, "crop_done_preview"):
-                self.crop_done_preview.clear("尚無 Step 3 輸入圖像")
+                self.crop_done_preview.clear("尚無 Step 4 輸入圖像")
             if hasattr(self, "region_canvas"):
                 self.region_canvas.set_image(None)
             if hasattr(self, "region_status"):
@@ -4253,7 +4253,7 @@ class MainWindow(QMainWindow):
 
     def submit_crop(self) -> bool:
         if not list_images(self.inputs_dir()):
-            QMessageBox.warning(self, "Missing", "請至少完成一張 Step 3 輸入圖像。請先點選左側縮圖後按『使用原始圖片』，或用裁切框裁切原圖。")
+            QMessageBox.warning(self, "Missing", "請至少完成一張 Step 4 輸入圖像。請先點選左側縮圖後按『使用原始圖片』，或用裁切框裁切原圖。")
             return False
         return True
 
@@ -4422,7 +4422,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "crop_done_grid"):
             self.crop_done_grid.clear()
         if hasattr(self, "crop_done_preview"):
-            self.crop_done_preview.clear("尚無 Step 3 輸入圖像")
+            self.crop_done_preview.clear("尚無 Step 4 輸入圖像")
         if hasattr(self, "raw_thumb_grid"):
             self.raw_thumb_grid.clearSelection()
 
@@ -4531,7 +4531,7 @@ class MainWindow(QMainWindow):
             if auto_select and self.crop_done_grid.count():
                 self.crop_done_grid.setCurrentRow(self.crop_done_grid.count() - 1)
         if not paths and hasattr(self, "crop_done_preview"):
-            self.crop_done_preview.clear("尚無 Step 3 輸入圖像")
+            self.crop_done_preview.clear("尚無 Step 4 輸入圖像")
 
     def refresh_crops_for_current_raw(self, auto_select: bool=False) -> None:
         if hasattr(self, "raw_thumb_grid"):
@@ -4683,9 +4683,9 @@ class MainWindow(QMainWindow):
             self.dirty_steps[j] = True
         # Preserve previous runs/exports when adding original image as Prompt input.
         self.save_state()
-        self.refresh_crops_for_source(src, auto_select=True)
+        self.refresh_crops(auto_select=True)
         self.refresh_region_thumbs(); self.refresh_prompt_groups(); self.update_step_buttons()
-        self.status_label.setText(f"Status: 已將原始圖片加入 Step 3 輸入圖像：{dst.name} ({w}*{h})")
+        self.status_label.setText(f"Status: 已將原始圖片加入 Step 4 輸入圖像：{dst.name} ({w}*{h})")
 
     def step4_input_modes(self) -> set[str]:
         """Classify the current crop-step input images as original ('no_crop') vs cropped.
@@ -4752,7 +4752,7 @@ class MainWindow(QMainWindow):
         elif hasattr(self, "crop_done_grid"):
             self.crop_done_grid.clear()
         if hasattr(self, "crop_done_preview"):
-            self.crop_done_preview.clear("尚無 Step 3 輸入圖像")
+            self.crop_done_preview.clear("尚無 Step 4 輸入圖像")
         self.refresh_region_thumbs(); self.refresh_prompt_groups(); self.update_step_buttons()
         self.update_step3_mode_ui()
         self.status_label.setText(f"Status: 使用原圖作為 Prompt 輸入，共 {len(list_images(self.inputs_dir()))} 張。")
@@ -4772,10 +4772,10 @@ class MainWindow(QMainWindow):
     def crop_select_raw_image(self, path_str: str) -> None:
         src = Path(path_str)
         self.crop_canvas.set_image(src)
-        self.refresh_crops_for_source(src, auto_select=False)
+        self.refresh_crops(auto_select=False)
         if self.validate_crop_inputs():
             self.confirm_crop_size()
-        self.status_label.setText("Status: 已載入原圖。可在中間圖像進行裁切；若要全部原圖直接送入 Step 3，請按底部『使用原始圖片』。")
+        self.status_label.setText("Status: 已載入原圖。可在中間圖像進行裁切；若要全部原圖直接送入 Step 4，請按底部『使用原始圖片』。")
 
     def make_crop_from_rect(self, src: Path, rect: tuple[int,int,int,int]) -> Optional[Path]:
         # Switching from 「使用原始圖片」 back to cropping must clear the previously copied
@@ -4955,7 +4955,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "crop_canvas"):
             self.crop_canvas.set_image(None)
         if hasattr(self, "crop_done_preview"):
-            self.crop_done_preview.clear("尚無 Step 3 輸入圖像")
+            self.crop_done_preview.clear("尚無 Step 4 輸入圖像")
         self.refresh_crops(auto_select=False); self.refresh_region_thumbs(); self.refresh_prompt_groups(); self.mark_dirty(3)
         self.status_label.setText("Status: 已刪除所有 Step 3 輸入裁切圖。")
 
@@ -5499,7 +5499,7 @@ class MainWindow(QMainWindow):
             "",
             "[資料與裁切]",
             f"原始圖片數量：{raw_count}",
-            f"Step 3 輸入圖像數量：{crop_count}",
+            f"Step 4 輸入圖像數量：{crop_count}",
             f"已選定生成組數：{selected_count}",
             f"裁切尺寸：{self.state.crop_width}*{self.state.crop_height}",
             "",
@@ -6230,8 +6230,23 @@ class MainWindow(QMainWindow):
     def refresh_raw_thumbs(self)->None:
         self.raw_thumb_grid.load_paths(list_images(self.raw_dir()))
 
-    def refresh_crops(self, auto_select: bool=False)->None:
-        paths=list_images(self.inputs_dir()); self.crop_done_grid.load_paths(paths)
+    def refresh_crops(self, auto_select: bool=False, select_path: Optional[Path]=None)->None:
+        # The grid always shows every crop in inputs_dir together (not filtered by the
+        # selected raw source). select_path selects a specific crop (e.g. the one just
+        # made) so its preview/canvas update without changing which crops are listed.
+        # Block signals during (re)load so the transient selection churn while clearing
+        # the grid does not fire on_crop_done_selected and hijack the middle canvas.
+        paths=list_images(self.inputs_dir())
+        blocker=QSignalBlocker(self.crop_done_grid)
+        try:
+            self.crop_done_grid.load_paths(paths)
+        finally:
+            del blocker
+        if select_path is not None:
+            target=Path(select_path).name
+            for i in range(self.crop_done_grid.count()):
+                if Path(self.crop_done_grid.item(i).data(Qt.UserRole)).name == target:
+                    self.crop_done_grid.setCurrentRow(i); return
         if auto_select and self.crop_done_grid.count(): self.crop_done_grid.setCurrentRow(self.crop_done_grid.count()-1)
         elif not paths and hasattr(self,"crop_done_preview"): self.crop_done_preview.clear("尚無裁切完成圖")
 

@@ -147,6 +147,11 @@ modes/food/project_food/<project_name>/data/00_raw_images/<class_name>/
   - If original inputs already exist and you start cropping, a dialog warns that those
     originals and any drawn ROI / Target Area will be cleared before cropping begins;
     cropping only proceeds after you confirm. Existing runs are preserved.
+- The right-hand input list (labelled `Step 4 輸入圖像` in both modes) always shows every
+  crop together. It is not filtered by which uploaded thumbnail is selected: cropping any
+  source adds its crops to the same combined list, and the just-made crop is auto-selected
+  (so the middle canvas stays on the image you are cropping). These crops are the inputs
+  carried into the next step.
 - In the right-hand input list, hovering the list and scrolling the mouse wheel switches
   the selected image without clicking (wheel down = next image, wheel up = previous
   image); the middle crop-frame preview and the crop preview box both update to match.

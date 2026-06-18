@@ -3028,7 +3028,7 @@ class MainWindow(QMainWindow):
         mid.addWidget(QLabel("原尺寸圖像 / 固定裁切框"))
         self.crop_canvas = CropCanvas()
         self.crop_canvas.crop_callback = self.make_crop_from_rect
-        self.crop_canvas.crop_made.connect(self.safe_slot("crop_made_refresh", lambda *_: self.refresh_crops_for_current_raw(auto_select=True)))
+        self.crop_canvas.crop_made.connect(self.safe_slot("crop_made_refresh", lambda p="": self.refresh_crops(auto_select=True, select_path=(Path(p) if p else None))))
         mid.addWidget(self.crop_canvas, 1)
 
         right = QVBoxLayout()
@@ -4702,7 +4702,7 @@ class MainWindow(QMainWindow):
             self.dirty_steps[j] = True
         # Preserve previous runs/exports when adding original image as Step 4 input.
         self.save_state()
-        self.refresh_crops_for_source(src, auto_select=True)
+        self.refresh_crops(auto_select=True)
         self.refresh_region_thumbs(); self.refresh_prompt_groups(); self.update_step_buttons()
         self.status_label.setText(f"Status: 已將原始圖片加入 Step 4 輸入圖像：{dst.name} ({w}*{h})")
 
@@ -4791,7 +4791,7 @@ class MainWindow(QMainWindow):
     def crop_select_raw_image(self, path_str: str) -> None:
         src = Path(path_str)
         self.crop_canvas.set_image(src)
-        self.refresh_crops_for_source(src, auto_select=False)
+        self.refresh_crops(auto_select=False)
         if self.validate_crop_inputs():
             self.confirm_crop_size()
         self.status_label.setText("Status: 已載入原圖。可在中間圖像進行裁切；若要全部原圖直接送入 Step 4，請按底部『使用原始圖片』。")
@@ -6300,8 +6300,23 @@ class MainWindow(QMainWindow):
     def refresh_raw_thumbs(self)->None:
         self.raw_thumb_grid.load_paths(list_images(self.raw_dir()))
 
-    def refresh_crops(self, auto_select: bool=False)->None:
-        paths=list_images(self.inputs_dir()); self.crop_done_grid.load_paths(paths)
+    def refresh_crops(self, auto_select: bool=False, select_path: Optional[Path]=None)->None:
+        # The grid always shows every crop in inputs_dir together (not filtered by the
+        # selected raw source). select_path selects a specific crop (e.g. the one just
+        # made) so its preview/canvas update without changing which crops are listed.
+        # Block signals during (re)load so the transient selection churn while clearing
+        # the grid does not fire on_crop_done_selected and hijack the middle canvas.
+        paths=list_images(self.inputs_dir())
+        blocker=QSignalBlocker(self.crop_done_grid)
+        try:
+            self.crop_done_grid.load_paths(paths)
+        finally:
+            del blocker
+        if select_path is not None:
+            target=Path(select_path).name
+            for i in range(self.crop_done_grid.count()):
+                if Path(self.crop_done_grid.item(i).data(Qt.UserRole)).name == target:
+                    self.crop_done_grid.setCurrentRow(i); return
         if auto_select and self.crop_done_grid.count(): self.crop_done_grid.setCurrentRow(self.crop_done_grid.count()-1)
         elif not paths and hasattr(self,"crop_done_preview"): self.crop_done_preview.clear("尚無裁切完成圖")
 
