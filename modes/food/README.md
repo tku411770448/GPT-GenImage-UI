@@ -156,8 +156,9 @@ scripts/verify_env.py             # environment verification helper
 
 - A project folder holds exactly `data/` and `runs/` — no per-project state file is
   written (no `project_state.json`, `configs/`, `exports/`, `logs/`, or `_ui_state/`).
-  Projects are listed from a single lightweight `modes/food/project/project_index.json`
-  registry; a reopened project re-derives its progress from the files on disk.
+  Projects are listed from a single `modes/food/project/project_index.json` registry,
+  which also stores each project's per-step completion flags so reopening restores the
+  exact step progress.
 - Runtime data under `modes/food/project/` is Git-ignored (via the root
   `.gitignore`), along with `log.txt`, `.env`, and export archives.
 - The shared API key lives in a single `.env` at the repository root (same level as

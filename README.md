@@ -139,11 +139,12 @@ modes/<mode>/project/<project_name>/
         └── prompt.txt                # the prompt actually sent for this run
 ```
 
-- The only persisted metadata is a single lightweight registry,
-  `modes/<mode>/project/project_index.json`, listing each project (id, name, class
-  name, mode, model, quality). The Homepage uses it to show and reopen projects; a
-  reopened project re-derives its workflow progress from the files on disk (uploaded
-  images / `runs/` / `prompt.txt`).
+- The only persisted metadata is a single registry,
+  `modes/<mode>/project/project_index.json`. Per project it stores id, name, class
+  name, mode, model, quality, the per-step completion flags (`completed_steps`,
+  true/false for each step) and — for defect — the ROI/Target `regions` geometry.
+  The Homepage uses it to list/reopen projects, and reopening restores the exact
+  step progress and annotations (still cross-checked against on-disk artifacts).
 - Generated image names are `<run_name>-<YYYY>-<MM>-<DD>-<HH>-<mm>-<counter>`; the
   counter never repeats, so previous outputs are never overwritten.
 - Export copies the selected runs' images straight to a folder you pick
@@ -172,9 +173,11 @@ Runtime data and secrets are kept out of source control by the root `.gitignore`
   preview; the key is never committed.
 - OpenAI pricing for cost estimation is fetched live with a built-in default
   fallback; nothing is cached to disk (there is no `configs/` folder).
-- Logging: key execution nodes (project created/opened, generation
-  start/finish/pause) and crash diagnostics are appended to the single repo-root
-  `log.txt`. There is no per-project or top-level `logs/` folder.
+- Logging: the single repo-root `log.txt` records the app startup time on launch,
+  per-step events (entering/submitting each step, ROI/Target saves, generation
+  start/finish/pause), and full tracebacks for any uncaught or per-action error
+  (also surfaced to the user in a dialog). There is no per-project or top-level
+  `logs/` folder.
 
 ---
 

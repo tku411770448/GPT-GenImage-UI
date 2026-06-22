@@ -2430,6 +2430,10 @@ class MainWindow(QMainWindow):
                 data["num_outputs"] = int(rec["num_outputs"])
         except Exception:
             pass
+        # Restore the recorded per-step completion flags so reopening a project keeps
+        # its progress (now stored inside the project_index.json record).
+        if isinstance(rec.get("completed_steps"), list):
+            data["completed_steps"] = [bool(v) for v in rec["completed_steps"]][:STEP_COUNT]
         return ui_state_data(data)
 
     def project_mode_for_id(self, pid: str) -> str:
@@ -2642,6 +2646,8 @@ class MainWindow(QMainWindow):
                     "model": self.state.model,
                     "quality": self.state.quality,
                     "num_outputs": self.state.num_outputs,
+                    # Persisted so reopening restores exact step progress.
+                    "completed_steps": list(self.state.completed_steps),
                     "created_at": self.state.created_at,
                     "updated_at": now_iso,
                 })
@@ -3451,6 +3457,7 @@ class MainWindow(QMainWindow):
             self.clear_step_preview(prev)
         self.current_step = idx
         self.state.last_active_step = int(idx)
+        self.log_event(f"enter Step {STEP_DISPLAY_INDEX.get(idx, idx)} (internal {idx})")
         self.save_state()
         self.stack.setCurrentIndex(STEP_TO_STACK_INDEX[idx])
         self.update_step_buttons()
@@ -3528,9 +3535,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Generating", "生成圖片期間 Submit / Save Step 已鎖定，請等待完成或停止目前程序。")
             return
         funcs = [self.submit_home, self.submit_project, self.submit_upload, self.submit_crop, self.submit_regions, self.submit_prompt, self.submit_model, self.submit_aggregate, self.submit_run, self.submit_export]
+        disp = STEP_DISPLAY_INDEX.get(idx, idx)
+        self.log_event(f"Step {disp} (internal {idx}) submit pressed")
         try:
-            if funcs[idx]():
+            ok = bool(funcs[idx]())
+            if ok:
                 self.complete_step(idx)
+            self.log_event(f"Step {disp} submit result={ok}")
         except Exception as exc:
             self._log_ui_exception(f"submit_step_{idx}", exc)
             QMessageBox.critical(self, "Submit failed", f"完成 Step {idx} 時發生錯誤，程式已阻止視窗直接關閉。\n\n{type(exc).__name__}: {exc}")

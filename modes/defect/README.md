@@ -93,14 +93,16 @@ modes/defect/project/<project_name>/data/raw_image/
   **Target Area** regions where new defects may be generated (rectangle or polygon).
 - In selection mode, ROI and rectangular Target Area boxes can be resized with corner
   and edge handles. The step auto-saves after edits.
-- The geometry is held in memory during the session (there are no separate
-  `regions/`, `masks/`, or `target_area_masks/` files, and it is not persisted to
-  disk). What is written is the rendered annotation image in `data/reference_image/`,
-  which is what generation actually consumes.
-- Saving also renders an **annotation reference image** into `data/reference_image/`:
-  a copy of the raw image with the ROI as a semi-transparent **MAGENTA** fill and the
-  Target Area as a semi-transparent **CYAN** fill. It is paired one-to-one with its
-  raw image by file stem and becomes **Image 2** during generation:
+- The ROI/Target geometry is saved in the `project_index.json` record (the `regions`
+  map, keyed by image stem) — there are no separate `regions/`, `masks/`, or
+  `target_area_masks/` files. Because it is persisted, revisiting Step 4 (or
+  reopening the project) restores exactly what you drew.
+- Saving also renders an **annotation reference image** into `data/reference_image/`.
+  It is drawn to look **identical to the Step 4 editor**: the ROI box uses the
+  image's **left-half** colour and the Target Area box uses the **right-half** colour,
+  each as a 3px outline + a light semi-transparent fill (so what you draw and what is
+  sent to the API as Image 2 match). It is paired one-to-one with its raw image by
+  file stem and becomes **Image 2** during generation:
 
 ```text
 modes/defect/project/<project_name>/data/raw_image/        # Image 1: clean originals
@@ -188,10 +190,10 @@ scripts/verify_env.py             # environment verification helper
 
 - A project folder holds exactly `data/` (`raw_image/` + `reference_image/`) and
   `runs/` — no per-project state file is written (no `project_state.json`, `configs/`,
-  `exports/`, `logs/`, or `_ui_state/`). Projects are listed from a single lightweight
-  `modes/defect/project/project_index.json` registry; a reopened project re-derives its
-  progress from the files on disk (ROI/Target Area geometry is not restored, but the
-  rendered `reference_image/` files remain and are what generation uses).
+  `exports/`, `logs/`, or `_ui_state/`). Projects are listed from a single
+  `modes/defect/project/project_index.json` registry, which also stores each project's
+  per-step completion flags and ROI/Target `regions` geometry, so reopening restores
+  the exact step progress and annotations.
 - Runtime data under `modes/defect/project/` is Git-ignored (via the root
   `.gitignore`), along with `log.txt`, `.env`, and export archives. The shared API
   key lives in a single `.env` at the repository root (same level as `modes/`, shared

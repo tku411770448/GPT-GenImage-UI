@@ -266,6 +266,13 @@ def main() -> None:
     except Exception:
         pass
 
+    # Record the project startup time so log.txt always shows when each run began.
+    try:
+        with app_log.open("a", encoding="utf-8") as f:
+            f.write(f"\n===== {datetime.now().isoformat(timespec='seconds')} | GenUI launched (python {sys.version.split()[0]}, platform {sys.platform}) =====\n")
+    except Exception:
+        pass
+
     def _excepthook(exc_type, exc, tb):
         try:
             with app_log.open("a", encoding="utf-8") as f:

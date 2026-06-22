@@ -1370,6 +1370,21 @@ class CropCanvas(QLabel):
         self.active_crop_rect = rect
 
 
+def halves_avg_colors(image) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """Average RGB of the image's left half and right half.
+
+    Used so the ROI box (left colour) and Target Area box (right colour) are tinted
+    from the underlying material — identically in the Step 4 editor and the rendered
+    reference_image. Downscaling to 2x1 with BOX resampling averages each half.
+    """
+    try:
+        small = image.convert("RGB").resize((2, 1), Image.BOX)
+        l = small.getpixel((0, 0)); r = small.getpixel((1, 0))
+        return (int(l[0]), int(l[1]), int(l[2])), (int(r[0]), int(r[1]), int(r[2]))
+    except Exception:
+        return (255, 23, 68), (0, 194, 255)
+
+
 class RoiTargetCanvas(QLabel):
     region_changed = Signal()
     canvas_error = Signal(str)
@@ -1404,6 +1419,10 @@ class RoiTargetCanvas(QLabel):
         self.resize_active: Optional[dict[str, Any]] = None
         self.handle_size = 10
         self.min_region_size = 4
+        # ROI box uses the image's left-half colour, Target Area box the right-half
+        # colour; sampled per-image in set_image(). These are only fallbacks.
+        self.roi_color = QColor("#ff1744")
+        self.target_color = QColor("#00c2ff")
 
     @property
     def roi(self) -> Optional[tuple[int, int, int, int]]:
@@ -1437,6 +1456,9 @@ class RoiTargetCanvas(QLabel):
             img = Image.open(self.image_path).convert("RGB")
             self.image_size = img.size
             self.pix = pil_to_pixmap(img)
+            l_rgb, r_rgb = halves_avg_colors(img)
+            self.roi_color = QColor(*l_rgb)
+            self.target_color = QColor(*r_rgb)
             self.setText("")
             reg = parse_region_txt(self.region_txt_path())
             self.rois = []
@@ -1525,7 +1547,7 @@ class RoiTargetCanvas(QLabel):
         target = self._target_rect()
         painter.drawPixmap(target, self.pix)
         for idx, roi in enumerate(self.rois, start=1):
-            self._draw_rect_region(painter, roi, QColor("#ff1744"), f"ROI {idx}", selected=((idx - 1) in self.selected_roi_indices))
+            self._draw_rect_region(painter, roi, self.roi_color, f"ROI {idx}", selected=((idx - 1) in self.selected_roi_indices))
         for idx, shape in enumerate(self.target_areas, start=1):
             label = "Target Area" if len(self.target_areas) == 1 else f"Target Area {idx}"
             self._draw_target_shape(painter, shape, label, selected=((idx - 1) in self.selected_target_indices))
@@ -1533,16 +1555,16 @@ class RoiTargetCanvas(QLabel):
         if self.drag_start and self.drag_current:
             rect = QRect(self.drag_start, self.drag_current).normalized()
             if self.mode == "roi":
-                color = QColor("#ff1744"); fill = QColor(255, 23, 68, 25)
+                color = self.roi_color; fill = QColor(color.red(), color.green(), color.blue(), 30)
             elif self.mode == "target_rect":
-                color = QColor("#00c2ff"); fill = QColor(0, 194, 255, 25)
+                color = self.target_color; fill = QColor(color.red(), color.green(), color.blue(), 30)
             else:
                 color = QColor("#fbbf24"); fill = QColor(251, 191, 36, 25)
             painter.setPen(QPen(color, 3, Qt.PenStyle.DashLine if self.mode in {"select_roi", "select_target"} else Qt.PenStyle.SolidLine))
             painter.setBrush(fill)
             painter.drawRect(rect)
         if self.mode == "target_poly" and self.poly_points:
-            painter.setPen(QPen(QColor("#00c2ff"), 3))
+            painter.setPen(QPen(self.target_color, 3))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             pts = list(self.poly_points)
             if self.drag_current:
@@ -1550,12 +1572,12 @@ class RoiTargetCanvas(QLabel):
             if len(pts) >= 2:
                 painter.drawPolyline(QPolygon(pts))
             for i, pt in enumerate(self.poly_points):
-                painter.setBrush(QColor("#00c2ff"))
+                painter.setBrush(self.target_color)
                 painter.drawEllipse(pt, 4, 4)
                 if i == 0:
                     painter.setPen(QPen(QColor("#ffffff"), 2))
                     painter.drawEllipse(pt, 8, 8)
-                    painter.setPen(QPen(QColor("#00c2ff"), 3))
+                    painter.setPen(QPen(self.target_color, 3))
         self._draw_cursor_mode_label(painter)
         painter.end()
 
@@ -1567,7 +1589,7 @@ class RoiTargetCanvas(QLabel):
         self._draw_label_above(painter, disp, label + ("  已選取" if selected else ""))
 
     def _draw_target_shape(self, painter: QPainter, shape: dict[str, Any], label: str, selected: bool = False) -> None:
-        color = QColor("#00c2ff")
+        color = self.target_color
         pen_color = QColor("#fbbf24") if selected else color
         painter.setPen(QPen(pen_color, 5 if selected else 3))
         painter.setBrush(QColor(color.red(), color.green(), color.blue(), 35))
@@ -2439,6 +2461,13 @@ class MainWindow(QMainWindow):
                 data["num_outputs"] = int(rec["num_outputs"])
         except Exception:
             pass
+        # Restore the recorded per-step completion flags and the ROI/Target geometry
+        # so reopening a project keeps its progress. project_state.json is no longer
+        # used; these now live inside the project_index.json record.
+        if isinstance(rec.get("completed_steps"), list):
+            data["completed_steps"] = [bool(v) for v in rec["completed_steps"]][:STEP_COUNT]
+        if isinstance(rec.get("regions"), dict):
+            data["regions"] = rec["regions"]
         return ui_state_data(data)
 
     def project_mode_for_id(self, pid: str) -> str:
@@ -2644,6 +2673,9 @@ class MainWindow(QMainWindow):
                     "model": self.state.model,
                     "quality": self.state.quality,
                     "num_outputs": self.state.num_outputs,
+                    # Persisted so reopening restores exact progress + annotations.
+                    "completed_steps": list(self.state.completed_steps),
+                    "regions": self.state.regions if isinstance(self.state.regions, dict) else {},
                     "created_at": self.state.created_at,
                     "updated_at": now_iso,
                 })
@@ -3467,6 +3499,7 @@ class MainWindow(QMainWindow):
             self.clear_step_preview(prev)
         self.current_step = idx
         self.state.last_active_step = int(idx)
+        self.log_event(f"enter Step {STEP_DISPLAY_INDEX.get(idx, idx)} (internal {idx})")
         self.save_state()
         self.stack.setCurrentIndex(STEP_TO_STACK_INDEX[idx])
         self.update_step_buttons()
@@ -3544,9 +3577,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Generating", "生成圖片期間 Submit / Save Step 已鎖定，請等待完成或停止目前程序。")
             return
         funcs = [self.submit_home, self.submit_project, self.submit_upload, self.submit_crop, self.submit_regions, self.submit_prompt, self.submit_model, self.submit_aggregate, self.submit_run, self.submit_export]
+        disp = STEP_DISPLAY_INDEX.get(idx, idx)
+        self.log_event(f"Step {disp} (internal {idx}) submit pressed")
         try:
-            if funcs[idx]():
+            ok = bool(funcs[idx]())
+            if ok:
                 self.complete_step(idx)
+            self.log_event(f"Step {disp} submit result={ok}")
         except Exception as exc:
             self._log_ui_exception(f"submit_step_{idx}", exc)
             QMessageBox.critical(self, "Submit failed", f"完成 Step {idx} 時發生錯誤，程式已阻止視窗直接關閉。\n\n{type(exc).__name__}: {exc}")
@@ -4949,14 +4986,15 @@ class MainWindow(QMainWindow):
         if not isinstance(self.state.regions, dict):
             self.state.regions = {}
         self.state.regions[p.stem] = {"rois": [list(r) for r in rois], "targets": targets}
-        # Render the Image 2 annotation reference: original raw image with a
-        # semi-transparent CYAN fill over Target Area(s) and a semi-transparent
-        # MAGENTA fill over the ROI rectangle(s).
+        # Render the Image 2 annotation reference to match the Step 4 editor exactly:
+        # the ROI box uses the image's left-half colour and the Target Area box the
+        # right-half colour, drawn as a 3px outline + light semi-transparent fill.
         try:
             ensure_dir(self.reference_dir())
             ref_path = self.reference_dir()/f"{p.stem}.png"
             base = Image.open(p).convert("RGB")
             size = base.size
+            roi_rgb, target_rgb = halves_avg_colors(base)
             if rois or targets:
                 overlay = Image.new("RGBA", size, (0, 0, 0, 0))
                 odraw = ImageDraw.Draw(overlay)
@@ -4964,12 +5002,12 @@ class MainWindow(QMainWindow):
                     if shape.get("kind") == "polygon":
                         pts = [(int(x), int(y)) for x, y in shape.get("points", [])]
                         if len(pts) >= 3:
-                            odraw.polygon(pts, fill=(0, 205, 255, 110), outline=(0, 205, 255, 255))
+                            odraw.polygon(pts, fill=(*target_rgb, 30), outline=(*target_rgb, 255), width=3)
                     else:
                         rect = shape.get("rect") or [0, 0, 0, 0]
-                        odraw.rectangle([int(v) for v in rect[:4]], fill=(0, 205, 255, 110), outline=(0, 205, 255, 255))
+                        odraw.rectangle([int(v) for v in rect[:4]], fill=(*target_rgb, 30), outline=(*target_rgb, 255), width=3)
                 for roi in rois:
-                    odraw.rectangle(list(roi), fill=(255, 23, 68, 110), outline=(255, 23, 68, 255))
+                    odraw.rectangle(list(roi), fill=(*roi_rgb, 30), outline=(*roi_rgb, 255), width=3)
                 composed = Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
                 composed.save(ref_path)
             elif ref_path.exists():
@@ -4977,6 +5015,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.save_state()
+        self.log_event(f"Step 4 ROI/Target saved for {p.stem}: ROI={len(rois)}, Target={len(targets)}")
         self.region_status.setText(self.region_status_text(p)); self.mark_dirty(4)
         if hasattr(self, "prompt_group_grid"):
             self.refresh_prompt_groups()
@@ -6236,6 +6275,13 @@ class MainWindow(QMainWindow):
                 self.region_canvas.set_image(None)
             if hasattr(self, "region_status"):
                 self.region_status.setText("尚未選擇圖像")
+        elif cur and hasattr(self, "region_canvas") and not (
+            getattr(self.region_canvas, "rois", None) or getattr(self.region_canvas, "target_areas", None)
+        ):
+            # The canvas is empty but saved geometry exists for this image (e.g.
+            # after reopening the project or revisiting Step 4 from a later step):
+            # restore the ROI/Target boxes so they do not appear to have vanished.
+            self.load_regions_into_canvas(Path(cur))
         self.step4_selected_view_stems = []
         self.update_region_selection_status()
 
