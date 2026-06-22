@@ -820,10 +820,12 @@ class PromptGroupList(QListWidget):
     def load_groups(self, image_paths: list[Path], regions_dir: Path, selected: str = "", selected_stems: Optional[list[str]] = None) -> None:
         self.clear()
         selected_stems = [str(x) for x in (selected_stems or []) if str(x)]
-        valid_paths: list[Path] = []
-        for p in image_paths:
-            if (regions_dir / f"{p.stem}.txt").exists():
-                valid_paths.append(p)
+        # image_paths already contains only the region-ready images (decided by
+        # all_region_ready_image_paths). Do NOT re-filter by a legacy
+        # regions_dir/<stem>.txt file: those .txt files are no longer written
+        # (ROI/Target geometry now lives in state.regions + the rendered
+        # reference_image), so the old filter made the 引用組別 list always empty.
+        valid_paths: list[Path] = [p for p in image_paths if p.exists()]
 
         if valid_paths:
             all_item = QListWidgetItem("全部圖像\n位置資訊")
@@ -4881,7 +4883,13 @@ class MainWindow(QMainWindow):
         regions = self.state.regions if isinstance(self.state.regions, dict) else {}
         for p in list_images(self.inputs_dir()):
             geo = regions.get(p.stem, {})
-            if (geo.get("rois") or []) and (geo.get("targets") or []):
+            has_geo = bool(geo.get("rois")) and bool(geo.get("targets"))
+            # project_state.json is no longer persisted, so on reopen state.regions
+            # is empty; fall back to the rendered annotation reference on disk
+            # (data/reference_image/<stem>.png) — the artifact generation uses — so a
+            # group completed in an earlier session still appears in 引用組別.
+            has_reference = (self.reference_dir() / f"{p.stem}.png").exists()
+            if has_geo or has_reference:
                 ready.append(p)
         return ready
 
