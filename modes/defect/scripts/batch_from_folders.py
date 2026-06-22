@@ -18,6 +18,7 @@ import json
 import re
 import shutil
 import subprocess
+import threading
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -131,6 +132,24 @@ def original_size_args_if_needed(size: str, image: Path) -> list[str]:
         return ["--final-width", str(img.width), "--final-height", str(img.height)]
 
 
+# Graceful-stop signalling. The UI no longer drops a .stop_request sentinel file
+# into runs/; instead it writes a single "STOP" line to this process's stdin, so
+# nothing is created on disk. A daemon thread watches stdin and sets the event;
+# the main loop checks it between images so the in-flight image still finishes
+# (its API call is not wasted) before generation stops.
+_STOP_EVENT = threading.Event()
+
+
+def _watch_stdin_for_stop() -> None:
+    try:
+        for line in sys.stdin:
+            if line.strip().upper() == "STOP":
+                _STOP_EVENT.set()
+                break
+    except Exception:
+        pass
+
+
 def run_and_tee(cmd: list[str], log_path: Path) -> None:
     """Run a subprocess while writing exactly what we print to log.txt."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,6 +164,7 @@ def run_and_tee(cmd: list[str], log_path: Path) -> None:
 
         proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -341,8 +361,10 @@ def main() -> None:
     p.add_argument("--no-clip-mask-to-target", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--resume-existing", action="store_true", help="Skip child runs in this batch run folder that already have final generated images.")
-    p.add_argument("--stop-file", type=Path, default=None, help="Graceful stop sentinel. When this file exists at the start of an image iteration, stop before sending the next image (the in-flight image still finishes so the API call is not wasted).")
     args = p.parse_args()
+
+    # Watch stdin for a graceful-stop signal from the UI (no sentinel file).
+    threading.Thread(target=_watch_stdin_for_stop, name="stop-watch", daemon=True).start()
 
     if not args.dry_run:
         try:
@@ -481,10 +503,10 @@ def main() -> None:
     summary_rows: list = []
     for index in range(start_index, total_jobs):
         # Graceful stop: finish the current in-flight image (handled by the previous
-        # iteration's blocking run_and_tee) but do not start the next one. The UI writes
-        # the sentinel when the user presses 停止目前程序; we exit 0 so it is not treated
-        # as a crash.
-        if args.stop_file is not None and args.stop_file.exists():
+        # iteration's blocking run_and_tee) but do not start the next one. The UI sends
+        # "STOP" on stdin when the user presses 停止目前程序; we exit 0 so it is not
+        # treated as a crash.
+        if _STOP_EVENT.is_set():
             print("===== generation stopped by user request =====", flush=True)
             break
         img, mask, target_area = queue[index]

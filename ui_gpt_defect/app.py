@@ -72,7 +72,9 @@ class UnifiedMainWindow(QMainWindow):
         if mode in self._mode_modules:
             return self._mode_modules[mode]
         mode_dir = self.root / "modes" / mode
-        app_path = mode_dir / "ui_gpt_defect" / "app.py"
+        # Each mode's UI package follows the ui_gpt_<mode> naming convention
+        # (modes/defect/ui_gpt_defect, modes/food/ui_gpt_food).
+        app_path = mode_dir / f"ui_gpt_{mode}" / "app.py"
         if not app_path.exists():
             raise FileNotFoundError(f"Missing mode app: {app_path}")
         module_name = f"genui_{mode}_app"

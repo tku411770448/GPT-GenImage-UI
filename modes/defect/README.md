@@ -203,8 +203,8 @@ aspect ratio, and supported total pixel range. The output-folder field is labell
   finish (its API call and cost are not wasted) and the next image is not started. A
   `目前生成圖像尚在接收中...` dialog shows while the current image is received; when it is
   saved the dialog auto-closes and `現在生成至第 <N> 張，還剩 <M> 張尚未生成，已暫停` is
-  shown. Mechanism: the UI writes a stop-sentinel file that the batch backend checks
-  between images via `--stop-file`; the process is not killed.
+  shown. Mechanism: the UI sends a `STOP` line on the batch process's stdin, which it
+  checks between images; no sentinel file is created and the process is not killed.
 - Generation outputs are written under (no `<class_name>` layer):
 
 ```text
@@ -242,7 +242,7 @@ The main source files are:
 ```text
 launch_ui.py                      # UI launcher
 ui_gpt_defect/app.py              # Defect workflow PySide6 app
-scripts/batch_from_folders.py     # Batch driver (graceful --stop-file pause)
+scripts/batch_from_folders.py     # Batch driver (graceful stdin STOP pause)
 scripts/run_gpt_image2.py         # GPT Image generation backend
 scripts/verify_env.py             # Environment verification helper
 ```

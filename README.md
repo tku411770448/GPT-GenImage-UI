@@ -279,9 +279,9 @@ fallback; nothing is cached to disk.
   image is still being received, a `目前生成圖像尚在接收中...` dialog is shown; when that
   image returns and is saved, the dialog auto-closes and a message
   `現在生成至第 <N> 張，還剩 <M> 張尚未生成，已暫停` is shown. (There is no longer a long
-  error-log dump on stop.) Mechanism: the UI writes a stop-sentinel file that the
-  batch backend checks between images via its `--stop-file` argument; the process is
-  not killed.
+  error-log dump on stop.) Mechanism: the UI sends a `STOP` line on the batch
+  process's stdin, which it checks between images; no sentinel file is created and
+  the process is not killed.
 - Generation outputs are written under (there is no longer a `<class_name>` folder layer):
 
 ```text
@@ -382,7 +382,7 @@ launch_ui.py                  # UI launcher
 ui_gpt_defect/app.py          # Single-window mode selector / mode host
 modes/defect/ui_gpt_defect/   # Defect workflow UI
 modes/defect/scripts/         # Defect generation helpers (batch_from_folders, run_gpt_image2, verify_env)
-modes/food/ui_gpt_defect/     # Food workflow UI
+modes/food/ui_gpt_food/       # Food workflow UI
 modes/food/scripts/           # Food generation helpers (batch_from_folders, run_gpt_image2, verify_env)
 ```
 

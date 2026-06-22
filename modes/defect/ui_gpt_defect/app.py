@@ -2723,9 +2723,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def generation_stop_file(self) -> Path:
-        return self.project_dir() / "runs" / ".stop_request"
-
     def append_run_record(self, outcome: str) -> None:
         """Append one run's record + status to project_state.json (run_history).
 
@@ -5743,7 +5740,6 @@ class MainWindow(QMainWindow):
             cmd += ["--run-name", self.state.run_name]
         if resume_existing:
             cmd.append("--resume-existing")
-        cmd += ["--stop-file", str(self.generation_stop_file())]
         return cmd
 
     def expected_generation_steps(self)->int:
@@ -5811,8 +5807,6 @@ class MainWindow(QMainWindow):
         self.state.last_generation_error = ""
         self.generation_started_step = int(self.current_step)
         self.save_state()
-        try: self.generation_stop_file().unlink()
-        except Exception: pass
         self._stop_requested = False
         self.log_event(f"generation start (resume={resume}, total={self.state.num_outputs}, run={self.state.run_name})")
         self.set_generation_ui_locked(True)
@@ -5901,11 +5895,13 @@ class MainWindow(QMainWindow):
 
     def stop_process(self) -> None:
         if self.current_process and self.current_process.state() != QProcess.NotRunning and self.current_process_label == "generation":
-            # Graceful pause: write the sentinel so the batch stops BEFORE sending the next image.
+            # Graceful pause: tell the batch process to stop BEFORE sending the next image
+            # by writing a single "STOP" line to its stdin (no sentinel file on disk).
             # Do NOT kill the process — the in-flight image finishes so its API call (and cost) is not wasted.
             self._stop_requested = True
             try:
-                sf = self.generation_stop_file(); ensure_dir(sf.parent); sf.write_text("stop", encoding="utf-8")
+                self.current_process.write(b"STOP\n")
+                self.current_process.waitForBytesWritten(1000)
             except Exception:
                 pass
             self.status_label.setText("Status: stop requested — finishing current image")
