@@ -91,6 +91,8 @@ state files, but the visible sidebar and page titles now use the 9-step flow abo
 - Create a new project with both `Project Name` and `Class Name`.
 - Save or replace the shared `OPENAI_API_KEY` used by all projects.
 - Open, copy, or delete existing project cards.
+- Copying a project duplicates its settings and uploaded images but not the generated
+  `runs/`/`exports/`, so each project has an independent run counter (a copy starts at `run1`).
 - Project names must be unique.
 - Selecting or switching a project keeps the page fixed: the project-card scroll
   position is preserved and the page does not jump.

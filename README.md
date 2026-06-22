@@ -111,8 +111,10 @@ step indexes for compatibility with existing project state files.
   data/config folder name. If left blank it defaults to the project name.
 - Save or replace the shared `OPENAI_API_KEY` used by all projects.
 - Open, duplicate, or delete existing project cards.
-- Duplicating a project copies its project state and class workspace artifacts so the
-  new card opens with the same existing content.
+- Duplicating a project copies its settings and uploaded source images but NOT the
+  generated outputs (`runs/` and `exports/`). Each project keeps an independent run
+  counter, so a duplicate starts fresh at `run1` instead of inheriting the source
+  project's runs.
 - Homepage project cards use green for defect projects and blue for food projects.
 - Cards keep a fixed position: selecting or opening a project never reorders them.
 - Selecting or switching a project keeps the page fixed: the project-card scroll

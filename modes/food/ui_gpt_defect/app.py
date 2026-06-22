@@ -3997,7 +3997,11 @@ class MainWindow(QMainWindow):
         new_name = self.make_duplicate_project_name(source_name)
         new_id = make_project_id(new_name)
         dst = self.projects_root / new_id
-        shutil.copytree(src, dst)
+        # A duplicated project must own an independent run counter, so the source
+        # project's generated outputs (runs/ and exports/) are intentionally NOT
+        # copied. Otherwise the copy inherits run1..runN and keeps counting from
+        # there, making run numbers appear to accumulate across projects.
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns("runs", "exports"))
 
         src_class = sanitize_name(base.get("class_name") or source_name)
         self.copy_class_workspace(src_class, src_class)
@@ -4009,13 +4013,32 @@ class MainWindow(QMainWindow):
         base["class_name"] = src_class
         base["created_at"] = now_iso
         base["saved_project"] = True
-        # Duplicate means a full copy of the project, not a reset/new-project flow.
-        # Keep completed_steps and all saved settings so Open can continue from it.
+        # Settings + uploaded data are duplicated, but the generated outputs
+        # (runs/ and exports/) were not, so every run-related field is reset.
+        # The duplicate therefore gets an independent run counter and its first
+        # generation restarts at run1 instead of continuing the source's history.
+        base["run_history"] = ""
+        base["aggregate_summary"] = ""
+        base["generation_status"] = "idle"
+        base["last_generation_return_code"] = 0
+        base["last_generation_error"] = ""
+        base["estimated_run_cost_usd"] = 0.0
+        base["actual_run_cost_usd"] = 0.0
+        base["last_export_zip"] = ""
+        base["last_export_dir"] = ""
+        # Drop any trailing run number so the next generation starts at <base>1.
+        base["run_name"] = re.sub(r"\d+$", "", sanitize_name(str(base.get("run_name") or "run"))) or "run"
         if len(base.get("completed_steps", [])) != STEP_COUNT:
             fixed = [True] + [False] * (STEP_COUNT - 1)
             for i, v in enumerate(base.get("completed_steps", [])[:STEP_COUNT]):
                 fixed[i] = bool(v)
             base["completed_steps"] = fixed
+        # No generated outputs were copied, so the generation (8) and export (9)
+        # steps must not stay marked complete (reconcile_* only ever turns steps
+        # on, never off).
+        if len(base.get("completed_steps", [])) == STEP_COUNT:
+            base["completed_steps"][8] = False
+            base["completed_steps"][9] = False
         new_state_path.write_text(json.dumps(base, ensure_ascii=False, indent=2), encoding="utf-8")
 
         idx = self.load_index()
