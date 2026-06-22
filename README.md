@@ -126,44 +126,38 @@ no sentinel file is written to disk.
 
 ## 5. Project Layout & Generated Artifacts
 
-A project folder contains exactly `data/`, `runs/`, and `project_state.json`:
+A project folder contains exactly `data/` and `runs/` — **no per-project state file
+is written** (the app no longer persists `project_state.json` or any run records):
 
 ```text
 modes/<mode>/project/<project_name>/
 ├── data/                         # input images (layout differs by mode, see mode README)
-├── runs/
-│   └── <run_name>/
-│       ├── Gen_Images/               # every generated image for this run
-│       ├── generation_summary.xlsx   # per-image table (.csv fallback if openpyxl missing)
-│       └── prompt.txt                # the prompt actually sent for this run
-└── project_state.json            # single source of truth for this project
+└── runs/
+    └── <run_name>/
+        ├── Gen_Images/               # every generated image for this run
+        ├── generation_summary.xlsx   # per-image table (.csv fallback if openpyxl missing)
+        └── prompt.txt                # the prompt actually sent for this run
 ```
 
-- `project_state.json` records **every** run of the project, not only the latest, in
-  two complementary forms:
-  - `run_records` — a structured list with one entry per finished run
-    (`run`, `finished_at`, `status`, `completed`, `total`, `return_code`,
-    `estimated_cost_usd`, `actual_cost_usd`).
-  - `run_history` — a human-readable text blob of the same runs (each run's settings
-    + final status: success / paused / failed / no-output), separated by a fixed
-    banner `<<================================================>>`.
-- It also holds completed-step state, the defect `regions` geometry map (keyed by
-  image stem), and the `aggregate_summary`.
+- The only persisted metadata is a single lightweight registry,
+  `modes/<mode>/project/project_index.json`, listing each project (id, name, class
+  name, mode, model, quality). The Homepage uses it to show and reopen projects; a
+  reopened project re-derives its workflow progress from the files on disk (uploaded
+  images / `runs/` / `prompt.txt`).
 - Generated image names are `<run_name>-<YYYY>-<MM>-<DD>-<HH>-<mm>-<counter>`; the
   counter never repeats, so previous outputs are never overwritten.
 - Export copies the selected runs' images straight to a folder you pick
   (`<project_name>-<timestamp>`, optionally zipped); it does not keep an `exports/`
   folder in the project.
-- Duplicating a project copies its settings and uploaded images but **not** the
-  generated `runs/`/`exports/`, so every project keeps an independent run counter (a
-  copy starts again at `run1`).
+- Duplicating a project copies only its uploaded images (`data/`), not the generated
+  `runs/`, so every project keeps an independent run counter (a copy starts at `run1`).
 
 ### What Git ignores
 
 Runtime data and secrets are kept out of source control by the root `.gitignore`:
 
-- `**/project/` — all per-project data (uploads, runs, generated images,
-  `project_state.json`) at any depth
+- `**/project/` — all per-project data (uploads, runs, generated images, the
+  `project_index.json` registry) at any depth
 - `log.txt` / `*.log` — the shared log
 - `.env` / `*.key` — API keys and secrets
 - `*.zip` / `*.tar` / `*.tar.gz` — export archives

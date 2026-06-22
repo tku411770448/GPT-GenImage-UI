@@ -109,13 +109,8 @@ modes/food/project/<project_name>/data/
 ### Step 6 — Aggregate 確認
 
 - Review the selected project, class, prompt, model, quality, size, output count and
-  `輸出資料夾名稱` before generation is allowed.
-- The summary is stored in `project_state.json` (`aggregate_summary`). The same file
-  records **every** run of the project (not only the latest) in two forms:
-  `run_records` (a structured list — `run`, `finished_at`, `status`, `completed`,
-  `total`, `return_code`, `estimated_cost_usd`, `actual_cost_usd`) and `run_history`
-  (the equivalent human-readable text, separated by
-  `<<================================================>>`).
+  `輸出資料夾名稱` before generation is allowed. The summary is rebuilt live from the
+  current settings and is not persisted (no per-project state file is written).
 
 ### Step 7 — 執行生成 (Run Generation)
 
@@ -159,8 +154,10 @@ scripts/run_gpt_image2.py         # GPT Image generation backend (prompt-only-ed
 scripts/verify_env.py             # environment verification helper
 ```
 
-- A project folder holds exactly `data/`, `runs/`, and `project_state.json` — no
-  `configs/`, `exports/`, `logs/`, or `_ui_state/`.
+- A project folder holds exactly `data/` and `runs/` — no per-project state file is
+  written (no `project_state.json`, `configs/`, `exports/`, `logs/`, or `_ui_state/`).
+  Projects are listed from a single lightweight `modes/food/project/project_index.json`
+  registry; a reopened project re-derives its progress from the files on disk.
 - Runtime data under `modes/food/project/` is Git-ignored (via the root
   `.gitignore`), along with `log.txt`, `.env`, and export archives.
 - The shared API key lives in a single `.env` at the repository root (same level as

@@ -93,8 +93,10 @@ modes/defect/project/<project_name>/data/raw_image/
   **Target Area** regions where new defects may be generated (rectangle or polygon).
 - In selection mode, ROI and rectangular Target Area boxes can be resized with corner
   and edge handles. The step auto-saves after edits.
-- The geometry is stored in `project_state.json` as a `regions` map keyed by image
-  stem — there are no separate `regions/`, `masks/`, or `target_area_masks/` files.
+- The geometry is held in memory during the session (there are no separate
+  `regions/`, `masks/`, or `target_area_masks/` files, and it is not persisted to
+  disk). What is written is the rendered annotation image in `data/reference_image/`,
+  which is what generation actually consumes.
 - Saving also renders an **annotation reference image** into `data/reference_image/`:
   a copy of the raw image with the ROI as a semi-transparent **MAGENTA** fill and the
   Target Area as a semi-transparent **CYAN** fill. It is paired one-to-one with its
@@ -135,12 +137,8 @@ delete all/selected Target Area · `Up`/`Down` switch image.
 
 - Review the selected project, class, ROI / Target Area coverage, prompt, model,
   quality, size, output count and `輸出資料夾名稱` before generation is allowed.
-- The summary is stored in `project_state.json` (`aggregate_summary`). The same file
-  records **every** run of the project (not only the latest) in two forms:
-  `run_records` (a structured list — `run`, `finished_at`, `status`, `completed`,
-  `total`, `return_code`, `estimated_cost_usd`, `actual_cost_usd`) and `run_history`
-  (the equivalent human-readable text, separated by
-  `<<================================================>>`).
+- The summary is rebuilt live from the current settings and is not persisted (no
+  per-project state file is written).
 
 ### Step 8 — 執行生成 (Run Generation)
 
@@ -188,12 +186,12 @@ scripts/run_gpt_image2.py         # GPT Image generation backend (reference-guid
 scripts/verify_env.py             # environment verification helper
 ```
 
-- A project folder holds exactly `data/` (`raw_image/` + `reference_image/`),
-  `runs/`, and `project_state.json` — no `configs/`, `exports/`, `logs/`, or
-  `_ui_state/`.
-- `project_state.json` is the single source of truth: completed-step state, the
-  `regions` geometry map (keyed by image stem), `aggregate_summary`, and the
-  per-run history (`run_records` + `run_history`).
+- A project folder holds exactly `data/` (`raw_image/` + `reference_image/`) and
+  `runs/` — no per-project state file is written (no `project_state.json`, `configs/`,
+  `exports/`, `logs/`, or `_ui_state/`). Projects are listed from a single lightweight
+  `modes/defect/project/project_index.json` registry; a reopened project re-derives its
+  progress from the files on disk (ROI/Target Area geometry is not restored, but the
+  rendered `reference_image/` files remain and are what generation uses).
 - Runtime data under `modes/defect/project/` is Git-ignored (via the root
   `.gitignore`), along with `log.txt`, `.env`, and export archives. The shared API
   key lives in a single `.env` at the repository root (same level as `modes/`, shared

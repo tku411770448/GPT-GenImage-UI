@@ -2060,23 +2060,11 @@ class UIState:
     # Export scope controls which runs are included in final zip/artifacts.
     # current = current UI run name/latest batch; all = every run under this class/project.
     export_scope: str = "current"
-    export_latest_only: bool = True
-    export_coco: bool = True
-    export_yolo: bool = True
-    export_copy_images: bool = True
-    last_export_zip: str = ""
-    last_export_dir: str = ""
     estimated_run_cost_usd: float = 0.0
     actual_run_cost_usd: float = 0.0
     saved_project: bool = False
     last_active_step: int = 0
     generation_status: str = "idle"
-    aggregate_summary: str = ""
-    run_history: str = ""
-    # Structured record of EVERY run in this project (not only the latest): one
-    # dict per finished generation, appended in append_run_record(). Complements
-    # the human-readable run_history text blob.
-    run_records: list = field(default_factory=list)
     regions: dict = field(default_factory=dict)
     last_generation_return_code: int = 0
     last_generation_error: str = ""
@@ -2387,37 +2375,33 @@ class MainWindow(QMainWindow):
                 rec["mode"] = mode
                 rec.setdefault("project_mode", mode)
                 rec["_project_root"] = str(proot)
-                rec["_state_path"] = str(proot / sanitize_name(pid) / "project_state.json")
                 combined.append(rec)
                 seen.add(key)
-            # Recovery fallback: include projects whose folder exists even if the index is stale.
-            for sp in proot.glob("*/project_state.json"):
-                try:
-                    data = json.loads(sp.read_text(encoding="utf-8"))
-                except Exception:
-                    continue
-                pid = str(data.get("project_id") or sp.parent.name).strip()
-                if not pid:
-                    continue
-                key = (mode, pid)
-                if key in seen:
-                    continue
-                rec = {
-                    "id": pid,
-                    "name": data.get("project_name") or pid,
-                    "class_name": data.get("class_name") or "-",
-                    "mode": mode,
-                    "project_mode": mode,
-                    "model": data.get("model") or "-",
-                    "quality": data.get("quality") or "-",
-                    "num_outputs": data.get("num_outputs") or 1,
-                    "created_at": data.get("created_at") or "-",
-                    "updated_at": data.get("updated_at") or data.get("created_at") or "-",
-                    "_project_root": str(proot),
-                    "_state_path": str(sp),
-                }
-                combined.append(rec)
-                seen.add(key)
+            # Recovery fallback: include projects whose folder exists even if the
+            # index is stale. project_state.json no longer exists, so a project is
+            # detected purely by its folder under the mode's project root.
+            if proot.exists():
+                for child in sorted(proot.iterdir()):
+                    if not child.is_dir():
+                        continue
+                    pid = child.name
+                    key = (mode, pid)
+                    if not pid or key in seen:
+                        continue
+                    combined.append({
+                        "id": pid,
+                        "name": pid,
+                        "class_name": "-",
+                        "mode": mode,
+                        "project_mode": mode,
+                        "model": "-",
+                        "quality": "-",
+                        "num_outputs": 1,
+                        "created_at": "-",
+                        "updated_at": "-",
+                        "_project_root": str(proot),
+                    })
+                    seen.add(key)
         # Fixed display order: sort by creation time (then id) so selecting or
         # opening a project never reorders the cards on the Homepage.
         return sorted(combined, key=lambda p: (str(p.get("created_at") or ""), str(p.get("id") or "")))
@@ -2428,14 +2412,37 @@ class MainWindow(QMainWindow):
                 return proj
         return None
 
+    def record_state_dict(self, pid: str) -> dict | None:
+        """Build a UIState dict for a project from the lightweight
+        project_index.json record. project_state.json is no longer persisted, so
+        detailed progress is re-derived from disk by
+        reconcile_completed_steps_for_loaded_project()."""
+        rec = self.find_project_record(pid)
+        if rec is None:
+            return None
+        data: dict[str, Any] = {
+            "project_id": str(rec.get("id") or pid),
+            "project_name": str(rec.get("name") or rec.get("id") or pid),
+            "project_mode": str(rec.get("project_mode") or rec.get("mode") or APP_MODE),
+            "saved_project": True,
+            "created_at": str(rec.get("created_at") or ""),
+            "updated_at": str(rec.get("updated_at") or ""),
+        }
+        for key in ("class_name", "model", "quality"):
+            value = rec.get(key)
+            if value and str(value) != "-":
+                data[key] = str(value)
+        try:
+            if rec.get("num_outputs"):
+                data["num_outputs"] = int(rec["num_outputs"])
+        except Exception:
+            pass
+        return ui_state_data(data)
+
     def project_mode_for_id(self, pid: str) -> str:
         rec = self.find_project_record(pid)
         mode = str((rec or {}).get("mode") or APP_MODE).lower()
         return mode if mode in {"defect", "food"} else APP_MODE
-
-    def project_state_path_for_id(self, pid: str) -> Path:
-        mode = self.project_mode_for_id(pid)
-        return self.mode_projects_root(mode) / sanitize_name(pid) / "project_state.json"
 
     def cleanup_legacy_unsaved_project(self) -> None:
         """Remove the old transient project/unsaved_project folder if it exists."""
@@ -2447,28 +2454,18 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def project_state_path(self, project_id: str | None = None) -> Path:
-        pid = project_id or self.state.project_id
-        return self.projects_root / sanitize_name(pid) / "project_state.json"
-
     def load_initial_state(self) -> UIState:
         idx = self.load_index()
         pid = idx.get("active_project_id") or ""
-        if pid and (self.projects_root / pid / "project_state.json").exists():
-            try:
-                data = json.loads((self.projects_root / pid / "project_state.json").read_text(encoding="utf-8"))
-                base = ui_state_data(data)
-                if len(base.get("completed_steps", [])) != STEP_COUNT:
-                    done = [False] * STEP_COUNT
-                    old = base.get("completed_steps", [])
-                    for i, v in enumerate(old[:STEP_COUNT]):
-                        done[i] = bool(v)
-                    base["completed_steps"] = done
-                st = UIState(**base)
-                self.reconcile_completed_steps_for_loaded_project(st)
-                return st
-            except Exception:
-                pass
+        if pid:
+            base = self.record_state_dict(pid)
+            if base is not None:
+                try:
+                    st = UIState(**base)
+                    self.reconcile_completed_steps_for_loaded_project(st)
+                    return st
+                except Exception:
+                    pass
         return UIState()
 
     def candidate_project_dirs(self, state: UIState | None = None) -> list[Path]:
@@ -2626,12 +2623,13 @@ class MainWindow(QMainWindow):
 
     def save_state(self) -> None:
         if self.state.project_id:
-            pdir = ensure_dir(self.project_dir())
+            ensure_dir(self.project_dir())
             now_iso = datetime.now().isoformat(timespec="seconds")
             if not self.state.created_at:
                 self.state.created_at = now_iso
             self.state.updated_at = now_iso
-            (pdir / "project_state.json").write_text(json.dumps(asdict(self.state), ensure_ascii=False, indent=2), encoding="utf-8")
+            # project_state.json is no longer written; only the lightweight
+            # project_index.json registry is kept so the Homepage can list projects.
             idx = self.load_index()
             idx["active_project_id"] = self.state.project_id
             if self.state.saved_project:
@@ -2726,54 +2724,6 @@ class MainWindow(QMainWindow):
                 f.write(f"[{datetime.now().isoformat(timespec='seconds')}] [{APP_MODE}] {message}\n")
         except Exception:
             pass
-
-    def append_run_record(self, outcome: str) -> None:
-        """Append one run's record + status to project_state.json (run_history).
-
-        Every run is kept (not only the latest); records are separated by a fixed
-        banner so the accumulated history stays readable inside the JSON string."""
-        separator = "<<================================================>>"
-        try:
-            # Capture the run's facts BEFORE build_aggregate_text(), which calls
-            # update_state_from_widgets() and could otherwise overwrite run_name.
-            run_name = self.state.run_name or "-"
-            completed = self.generation_completed
-            total = self.generation_total
-            return_code = self.state.last_generation_return_code
-            est_cost = self.state.estimated_run_cost_usd
-            act_cost = self.state.actual_run_cost_usd
-            ts = datetime.now().isoformat(timespec="seconds")
-            try:
-                settings = self.build_aggregate_text()
-            except Exception:
-                settings = self.state.aggregate_summary or ""
-            block = (
-                f"Run：{run_name}\n"
-                f"結束時間：{ts}\n"
-                f"狀態：{outcome}\n"
-                f"完成張數：{completed} / {total}\n"
-                f"Return code：{return_code}\n"
-                f"預估成本 USD：{est_cost}\n"
-                f"實際成本 USD：{act_cost}\n"
-                f"----- 本次設定 -----\n{settings}"
-            )
-            if not isinstance(self.state.run_records, list):
-                self.state.run_records = []
-            self.state.run_records.append({
-                "run": run_name,
-                "finished_at": ts,
-                "status": outcome,
-                "completed": completed,
-                "total": total,
-                "return_code": return_code,
-                "estimated_cost_usd": est_cost,
-                "actual_cost_usd": act_cost,
-            })
-            prev = (self.state.run_history or "").rstrip()
-            self.state.run_history = (prev + "\n" + separator + "\n" + block) if prev else block
-            self.save_state()
-        except Exception as exc:
-            self._log_ui_exception("append_run_record", exc)
 
     # ---------- UI construction ----------
     def build_ui(self) -> None:
@@ -3730,18 +3680,17 @@ class MainWindow(QMainWindow):
         if not pid:
             self.project_summary.setText("尚未選擇專案。")
             return
-        state_path = self.project_state_path_for_id(pid)
-        if not state_path.exists():
+        rec = self.find_project_record(pid)
+        if rec is None:
             self.project_summary.setText("此專案尚無設定檔。")
             return
-        data = json.loads(state_path.read_text(encoding="utf-8"))
         self.project_summary.setText(
-            f"專案名稱：{data.get('project_name','-')}\n"
-            f"Class Name：{data.get('class_name','-')}\n"
-            f"Create：{str(data.get('created_at') or '-').replace('T',' ')}\n"
-            f"模型：{data.get('model','-')}\n"
-            f"品質：{data.get('quality','-')}\n"
-            f"輸出張數：{data.get('num_outputs','-')}\n"
+            f"專案名稱：{rec.get('name','-')}\n"
+            f"Class Name：{rec.get('class_name','-')}\n"
+            f"Create：{str(rec.get('created_at') or '-').replace('T',' ')}\n"
+            f"模型：{rec.get('model','-')}\n"
+            f"品質：{rec.get('quality','-')}\n"
+            f"輸出張數：{rec.get('num_outputs','-')}\n"
             f"狀態：可開啟後繼續編輯或重新執行。"
         )
 
@@ -3831,11 +3780,10 @@ class MainWindow(QMainWindow):
                 return
             QMessageBox.information(self, "Switch mode", f"請從根目錄 launch_ui.py 啟動整合版，才能開啟 {'Food' if target_mode == 'food' else 'Defect'} 專案。")
             return
-        state_path = self.project_state_path_for_id(pid)
-        if not state_path.exists():
-            QMessageBox.warning(self, "Missing", "找不到專案設定。")
+        base = self.record_state_dict(pid)
+        if base is None:
+            QMessageBox.warning(self, "Missing", "找不到專案。")
             return
-        base = ui_state_data(json.loads(state_path.read_text(encoding="utf-8")))
         if len(base.get("completed_steps", [])) != STEP_COUNT:
             done = [True] + [False] * (STEP_COUNT - 1)
             old = base.get("completed_steps", [])
@@ -3844,6 +3792,13 @@ class MainWindow(QMainWindow):
             base["completed_steps"] = done
         self.state = UIState(**base)
         self.state.saved_project = True
+        # project_state.json is gone; restore the saved prompt from disk if present.
+        try:
+            pp = self.prompt_path()
+            if pp.exists():
+                self.state.prompt_input = pp.read_text(encoding="utf-8", errors="ignore").strip()
+        except Exception:
+            pass
         self.selected_project_card_id = pid
         self.reconcile_completed_steps_for_loaded_project(self.state)
         self.dirty_steps = [False if d else True for d in self.state.completed_steps]
@@ -3894,17 +3849,13 @@ class MainWindow(QMainWindow):
                 return
             QMessageBox.information(self, "Switch mode", "請先開啟該模式後再重新命名專案。")
             return
-        state_path = self.project_state_path_for_id(pid)
-        project_dir = state_path.parent
-        if not project_dir.exists() or not state_path.exists():
+        rec = self.find_project_record(pid)
+        project_dir = self.projects_root / sanitize_name(pid)
+        if rec is None or not project_dir.exists():
             QMessageBox.warning(self, "Missing", "找不到要重新命名的專案。")
             return
-        try:
-            data = json.loads(state_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            QMessageBox.critical(self, "Read failed", f"無法讀取專案設定：{type(exc).__name__}: {exc}")
-            return
-        old_name = str(data.get("project_name") or pid).strip()
+        data = dict(rec)
+        old_name = str(rec.get("name") or pid).strip()
         new_name, ok = QInputDialog.getText(self, "Rename Project", "New project name", text=old_name)
         if not ok:
             return
@@ -3932,12 +3883,10 @@ class MainWindow(QMainWindow):
         try:
             if new_id != pid:
                 project_dir.rename(new_dir)
-                state_path = new_dir / "project_state.json"
-            data["project_id"] = new_id
-            data["project_name"] = new_name
+            data["id"] = new_id
+            data["name"] = new_name
             data["updated_at"] = now_iso
             data.setdefault("project_mode", APP_MODE)
-            state_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             idx = self.load_index()
             projects = []
             updated = False
@@ -3973,10 +3922,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "selected_project_card_id", "") == pid:
             self.selected_project_card_id = new_id
         if self.state.project_id == pid:
-            base = ui_state_data(data)
-            self.state = UIState(**base)
+            self.state.project_id = new_id
+            self.state.project_name = new_name
             self.selected_project_card_id = new_id
-            self.load_state_to_widgets()
             self.save_state()
         self.refresh_project_list()
         self.status_label.setText(f"Status: project renamed to {new_name}")
@@ -4016,60 +3964,22 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Switch mode", "請先開啟該模式後再複製專案。")
             return
         src = self.projects_root / pid
-        state_path = src / "project_state.json"
-        if not src.exists() or not state_path.exists():
+        rec = self.find_project_record(pid)
+        if not src.exists() or rec is None:
             QMessageBox.warning(self, "Missing", "找不到要複製的專案。")
             return
-        base = ui_state_data(json.loads(state_path.read_text(encoding="utf-8")))
-        source_name = str(base.get("project_name") or pid)
+        source_name = str(rec.get("name") or pid)
         new_name = self.make_duplicate_project_name(source_name)
         new_id = make_project_id(new_name)
         dst = self.projects_root / new_id
-        # A duplicated project must own an independent run counter, so the source
-        # project's generated outputs (runs/ and exports/) are intentionally NOT
-        # copied. Otherwise the copy inherits run1..runN and keeps counting from
-        # there, making run numbers appear to accumulate across projects.
+        # A duplicate copies only the uploaded inputs (data/), never the generated
+        # outputs (runs/ and exports/), so it owns an independent run counter that
+        # starts again at run1.
         shutil.copytree(src, dst, ignore=shutil.ignore_patterns("runs", "exports"))
 
-        src_class = sanitize_name(base.get("class_name") or source_name)
-        self.copy_class_workspace(src_class, src_class)
-
-        new_state_path = dst / "project_state.json"
+        src_class_raw = rec.get("class_name")
+        src_class = sanitize_name(str(src_class_raw) if src_class_raw not in (None, "", "-") else source_name)
         now_iso = datetime.now().isoformat(timespec="seconds")
-        base["project_id"] = new_id
-        base["project_name"] = new_name
-        base["class_name"] = src_class
-        base["created_at"] = now_iso
-        base["saved_project"] = True
-        # Settings + uploaded data are duplicated, but the generated outputs
-        # (runs/ and exports/) were not, so every run-related field is reset.
-        # The duplicate therefore gets an independent run counter and its first
-        # generation restarts at run1 instead of continuing the source's history.
-        base["run_history"] = ""
-        base["run_records"] = []
-        base["aggregate_summary"] = ""
-        base["generation_status"] = "idle"
-        base["last_generation_return_code"] = 0
-        base["last_generation_error"] = ""
-        base["estimated_run_cost_usd"] = 0.0
-        base["actual_run_cost_usd"] = 0.0
-        base["last_export_zip"] = ""
-        base["last_export_dir"] = ""
-        # Drop any trailing run number so the next generation starts at <base>1.
-        base["run_name"] = re.sub(r"\d+$", "", sanitize_name(str(base.get("run_name") or "run"))) or "run"
-        if len(base.get("completed_steps", [])) != STEP_COUNT:
-            fixed = [True] + [False] * (STEP_COUNT - 1)
-            for i, v in enumerate(base.get("completed_steps", [])[:STEP_COUNT]):
-                fixed[i] = bool(v)
-            base["completed_steps"] = fixed
-        # No generated outputs were copied, so the generation (8) and export (9)
-        # steps must not stay marked complete (reconcile_* only ever turns steps
-        # on, never off).
-        if len(base.get("completed_steps", [])) == STEP_COUNT:
-            base["completed_steps"][8] = False
-            base["completed_steps"][9] = False
-        new_state_path.write_text(json.dumps(base, ensure_ascii=False, indent=2), encoding="utf-8")
-
         idx = self.load_index()
         projects = [p for p in idx.get("projects", []) if p.get("id") != new_id]
         projects.append({
@@ -4077,9 +3987,9 @@ class MainWindow(QMainWindow):
             "name": new_name,
             "class_name": src_class,
             "mode": APP_MODE,
-            "model": base.get("model", "-"),
-            "quality": base.get("quality", "-"),
-            "num_outputs": base.get("num_outputs", 1),
+            "model": rec.get("model", "-"),
+            "quality": rec.get("quality", "-"),
+            "num_outputs": rec.get("num_outputs", 1),
             "created_at": now_iso,
             "updated_at": now_iso,
         })
@@ -4345,7 +4255,7 @@ class MainWindow(QMainWindow):
         return self.save_model_settings(show_message=False)
 
     def submit_aggregate(self) -> bool:
-        summary = self.build_aggregate_text(); self.state.aggregate_summary = summary
+        summary = self.build_aggregate_text()
         if hasattr(self,"aggregate_box"): self.aggregate_box.setPlainText(summary)
         self.save_state(); return True
 
@@ -5855,7 +5765,6 @@ class MainWindow(QMainWindow):
                 self.save_state()
                 self.update_step_buttons()
                 self.set_generation_progress(min(len(outputs), self.generation_total), f"生成完成：找到 {len(outputs)} 張輸出圖。")
-                self.append_run_record(f"成功（{len(outputs)} 張）")
             else:
                 self.state.generation_status = "no_outputs"
                 self.state.completed_steps[8] = False
@@ -5863,7 +5772,6 @@ class MainWindow(QMainWindow):
                 self.save_state()
                 self.update_step_buttons()
                 self.set_generation_progress(0, "生成程序結束，但沒有找到任何輸出圖；Step 8 不會被標記完成。")
-                self.append_run_record("結束但無輸出")
                 QMessageBox.warning(self, "No output", "生成程序結束，但沒有找到任何輸出圖。請查看下方 log。")
         self.run_command(cmd,"generation",on_finished=_after_generation)
 
@@ -6103,8 +6011,6 @@ class MainWindow(QMainWindow):
                 archive = shutil.make_archive(str(dest_root / folder_name), "zip", root_dir=str(dest_root), base_dir=folder_name)
                 shutil.rmtree(out_dir, ignore_errors=True)
                 result_path = Path(archive)
-            self.state.last_export_dir = str(result_path)
-            self.state.last_export_zip = str(result_path) if want_zip else ""
             self.state.completed_steps[9] = True
             self.dirty_steps[9] = False
             self.save_state(); self.update_step_buttons()
@@ -6179,7 +6085,6 @@ class MainWindow(QMainWindow):
                         except Exception: pass
                         self.save_state(); self.update_step_buttons()
                         self.log_event(f"generation paused at {done}/{self.generation_total}")
-                        self.append_run_record(f"已暫停（完成 {done} / {self.generation_total}）")
                         self.current_process = None; self.current_process_label = ""
                         self.set_generation_ui_locked(False)
                         QMessageBox.information(self, "已暫停", f"現在生成至第 {done} 張，還剩 {remaining} 張尚未生成，已暫停")
@@ -6191,7 +6096,6 @@ class MainWindow(QMainWindow):
                         self.show_generation_failure_dialog(int(code))
                         self.save_state(); self.update_step_buttons()
                         self.log_event(f"generation failed (code={code})")
-                        self.append_run_record(f"失敗（code={int(code)}）")
                     else:
                         self.set_generation_progress(max(1,self.generation_total),f"生成程序完成，正在檢查輸出圖。")
                         self.log_event("generation finished: success")
