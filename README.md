@@ -378,8 +378,7 @@ default fallback and nothing is cached to disk.
 The main source files are:
 
 ```text
-launch_ui.py                  # UI launcher
-ui_gpt_defect/app.py          # Single-window mode selector / mode host
+launch_ui.py                  # UI launcher + single-window mode host (UnifiedMainWindow)
 modes/defect/ui_gpt_defect/   # Defect workflow UI
 modes/defect/scripts/         # Defect generation helpers (batch_from_folders, run_gpt_image2, verify_env)
 modes/food/ui_gpt_food/       # Food workflow UI
