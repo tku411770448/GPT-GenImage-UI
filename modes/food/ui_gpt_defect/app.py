@@ -4196,33 +4196,6 @@ class MainWindow(QMainWindow):
         return f"{head}{'*' * 12}{tail}（已保存，可沿用）"
 
     def refresh_api_placeholder(self) -> None:
-        if hasattr(self, "api_edit"):
-            key = self.read_env_key()
-            self.api_edit.setPlaceholderText(self.masked_key(key))
-            self.state.api_key_set = bool(key)
-
-    def save_api_key(self) -> None:
-        key = self.api_edit.text().strip()
-        if not key:
-            existing = self.read_env_key()
-            if existing:
-                self.refresh_api_placeholder()
-                QMessageBox.information(self, "API Key 已設定", f"目前已保存 API Key：{self.masked_key(existing)}")
-            else:
-                QMessageBox.warning(self, "Missing", "尚未輸入 API Key，且目前也沒有既有 API Key 可沿用。")
-            return
-        old = self.read_env_key()
-        if old and key != old:
-            ret = QMessageBox.question(self, "確認替換 API Key", "偵測到你輸入的 API Key 與目前保存的不同。是否確認替換？", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if ret != QMessageBox.StandardButton.Yes:
-                self.api_edit.clear(); return
-        env = self.root / ".env"
-        lines = []
-        if env.exists(): lines = [ln for ln in env.read_text(encoding="utf-8").splitlines() if not ln.startswith("OPENAI_API_KEY=")]
-        lines.append(f"OPENAI_API_KEY={key}"); env.write_text("\n".join(lines)+"\n", encoding="utf-8")
-        os.environ["OPENAI_API_KEY"] = key; self.state.api_key_set=True; self.save_state(); self.api_edit.clear(); self.refresh_api_placeholder(); QMessageBox.information(self, "API Key 已設定", f"API Key 已成功保存：{self.masked_key(key)}")
-
-    def refresh_api_placeholder(self) -> None:
         key = self.read_env_key()
         for attr in ("home_api_edit", "api_edit"):
             editor = getattr(self, attr, None)
@@ -4233,12 +4206,10 @@ class MainWindow(QMainWindow):
     def save_api_key_from_editor(self, editor: QLineEdit) -> bool:
         key = editor.text().strip()
         if not key:
-            existing = self.read_env_key()
-            if existing:
-                self.refresh_api_placeholder()
-                QMessageBox.information(self, "API Key", f"Current shared API Key: {self.masked_key(existing)}")
-            else:
-                QMessageBox.warning(self, "Missing", "Please enter an OpenAI API Key.")
+            # User pressed Save without typing a key. Always prompt them to
+            # enter one — never silently report an existing key as "saved",
+            # which made an empty Save misleadingly show 已保存／可沿用.
+            QMessageBox.warning(self, "請輸入 API Key", "請輸入 API Key")
             return False
         old = self.read_env_key()
         if old and key != old:
@@ -4266,24 +4237,6 @@ class MainWindow(QMainWindow):
             self.save_api_key_from_editor(editor)
 
     # ---------- submit ----------
-    def submit_home(self) -> bool:
-        if not self.state.project_id:
-            QMessageBox.warning(self, "Missing", "請先新增或開啟一個專案。")
-            return False
-        return True
-
-    def submit_project(self) -> bool:
-        self.update_state_from_widgets()
-        if not self.state.class_name:
-            QMessageBox.warning(self, "Missing", "Class Name 不能空白。")
-            return False
-        if not self.read_env_key() and not self.api_edit.text().strip():
-            QMessageBox.warning(self, "Missing", "第一次執行請先輸入並儲存 OpenAI API Key。")
-            return False
-        if self.api_edit.text().strip(): self.save_api_key()
-        self.init_workspace_silent(); self.save_state(); self.status_label.setText("Status: workspace ready")
-        return True
-
     def submit_home(self) -> bool:
         editor = getattr(self, "home_api_edit", None)
         if editor is not None and editor.text().strip():
