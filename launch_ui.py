@@ -159,6 +159,11 @@ class UnifiedMainWindow(QMainWindow):
                 window.update_sidebar_responsive()
             if hasattr(window, "refresh_project_list"):
                 window.refresh_project_list()
+            # The shared OpenAI API key lives in one repo-root .env; re-sync the
+            # Homepage field every time a mode is shown so a key saved earlier (or in
+            # the other mode) appears as already saved and never needs re-entering.
+            if hasattr(window, "refresh_api_placeholder"):
+                window.refresh_api_placeholder()
             if hasattr(window, "update_step_buttons"):
                 window.update_step_buttons()
         except Exception:

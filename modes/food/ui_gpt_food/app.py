@@ -4083,9 +4083,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "prompt_edit"):
             self._set_widget_value_blocked(self.prompt_edit, "setPlainText", self.state.prompt_input or "")
             self.update_actual_prompt_preview()
-        if hasattr(self, "api_edit"):
-            self.refresh_api_placeholder()
-            self._set_widget_value_blocked(self.api_edit, "clear", None)
+        # Re-sync the shared API key field from the repo-root .env so a key saved
+        # earlier (in this or the other mode) shows as already saved instead of
+        # prompting for re-entry when a project is created/opened.
+        self.refresh_api_placeholder()
+        if hasattr(self, "home_api_edit"):
+            self._set_widget_value_blocked(self.home_api_edit, "clear", None)
 
     def update_state_from_widgets(self) -> None:
         if hasattr(self, "class_edit"):
