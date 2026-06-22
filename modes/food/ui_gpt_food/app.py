@@ -2067,6 +2067,10 @@ class UIState:
     generation_status: str = "idle"
     aggregate_summary: str = ""
     run_history: str = ""
+    # Structured record of EVERY run in this project (not only the latest): one
+    # dict per finished generation, appended in append_run_record(). Complements
+    # the human-readable run_history text blob.
+    run_records: list = field(default_factory=list)
     last_generation_return_code: int = 0
     last_generation_error: str = ""
 
@@ -2750,6 +2754,18 @@ class MainWindow(QMainWindow):
                 f"實際成本 USD：{act_cost}\n"
                 f"----- 本次設定 -----\n{settings}"
             )
+            if not isinstance(self.state.run_records, list):
+                self.state.run_records = []
+            self.state.run_records.append({
+                "run": run_name,
+                "finished_at": ts,
+                "status": outcome,
+                "completed": completed,
+                "total": total,
+                "return_code": return_code,
+                "estimated_cost_usd": est_cost,
+                "actual_cost_usd": act_cost,
+            })
             prev = (self.state.run_history or "").rstrip()
             self.state.run_history = (prev + "\n" + separator + "\n" + block) if prev else block
             self.save_state()
@@ -4015,6 +4031,7 @@ class MainWindow(QMainWindow):
         # The duplicate therefore gets an independent run counter and its first
         # generation restarts at run1 instead of continuing the source's history.
         base["run_history"] = ""
+        base["run_records"] = []
         base["aggregate_summary"] = ""
         base["generation_status"] = "idle"
         base["last_generation_return_code"] = 0

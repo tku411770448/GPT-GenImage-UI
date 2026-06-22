@@ -139,11 +139,16 @@ modes/<mode>/project/<project_name>/
 └── project_state.json            # single source of truth for this project
 ```
 
-- `project_state.json` holds completed-step state, the defect `regions` geometry map
-  (keyed by image stem), the `aggregate_summary`, and a `run_history` that
-  accumulates **every** run's record and final status (success / paused / failed /
-  no-output), separated by a fixed banner
-  `<<================================================>>`.
+- `project_state.json` records **every** run of the project, not only the latest, in
+  two complementary forms:
+  - `run_records` — a structured list with one entry per finished run
+    (`run`, `finished_at`, `status`, `completed`, `total`, `return_code`,
+    `estimated_cost_usd`, `actual_cost_usd`).
+  - `run_history` — a human-readable text blob of the same runs (each run's settings
+    + final status: success / paused / failed / no-output), separated by a fixed
+    banner `<<================================================>>`.
+- It also holds completed-step state, the defect `regions` geometry map (keyed by
+  image stem), and the `aggregate_summary`.
 - Generated image names are `<run_name>-<YYYY>-<MM>-<DD>-<HH>-<mm>-<counter>`; the
   counter never repeats, so previous outputs are never overwritten.
 - Export copies the selected runs' images straight to a folder you pick

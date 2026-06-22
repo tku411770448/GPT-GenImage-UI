@@ -135,9 +135,12 @@ delete all/selected Target Area · `Up`/`Down` switch image.
 
 - Review the selected project, class, ROI / Target Area coverage, prompt, model,
   quality, size, output count and `輸出資料夾名稱` before generation is allowed.
-- The summary is stored in `project_state.json` (`aggregate_summary`), which also
-  keeps a `run_history` accumulating every run's record and final status (separated
-  by `<<================================================>>`).
+- The summary is stored in `project_state.json` (`aggregate_summary`). The same file
+  records **every** run of the project (not only the latest) in two forms:
+  `run_records` (a structured list — `run`, `finished_at`, `status`, `completed`,
+  `total`, `return_code`, `estimated_cost_usd`, `actual_cost_usd`) and `run_history`
+  (the equivalent human-readable text, separated by
+  `<<================================================>>`).
 
 ### Step 8 — 執行生成 (Run Generation)
 
@@ -189,8 +192,8 @@ scripts/verify_env.py             # environment verification helper
   `runs/`, and `project_state.json` — no `configs/`, `exports/`, `logs/`, or
   `_ui_state/`.
 - `project_state.json` is the single source of truth: completed-step state, the
-  `regions` geometry map (keyed by image stem), `aggregate_summary`, and
-  `run_history`.
+  `regions` geometry map (keyed by image stem), `aggregate_summary`, and the
+  per-run history (`run_records` + `run_history`).
 - Runtime data under `modes/defect/project/` is Git-ignored (via the root
   `.gitignore`), along with `log.txt`, `.env`, and export archives. The shared API
   key lives in a single `.env` at the repository root (same level as `modes/`, shared

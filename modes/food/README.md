@@ -110,9 +110,12 @@ modes/food/project/<project_name>/data/
 
 - Review the selected project, class, prompt, model, quality, size, output count and
   `輸出資料夾名稱` before generation is allowed.
-- The summary is stored in `project_state.json` (`aggregate_summary`), which also
-  keeps a `run_history` accumulating every run's record and final status (separated
-  by `<<================================================>>`).
+- The summary is stored in `project_state.json` (`aggregate_summary`). The same file
+  records **every** run of the project (not only the latest) in two forms:
+  `run_records` (a structured list — `run`, `finished_at`, `status`, `completed`,
+  `total`, `return_code`, `estimated_cost_usd`, `actual_cost_usd`) and `run_history`
+  (the equivalent human-readable text, separated by
+  `<<================================================>>`).
 
 ### Step 7 — 執行生成 (Run Generation)
 
