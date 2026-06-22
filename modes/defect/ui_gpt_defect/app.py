@@ -4175,12 +4175,16 @@ class MainWindow(QMainWindow):
 
     # ---------- API key ----------
     def read_env_key(self) -> str:
+        # Only a key the user explicitly saved through the UI (written to .env) counts
+        # as "saved". Do NOT fall back to the OS OPENAI_API_KEY environment variable —
+        # otherwise a brand-new project would show a key as already saved before the
+        # user has entered one. The field must start empty until the user saves a key.
         env = self.root / ".env"
         if env.exists():
             for line in env.read_text(encoding="utf-8", errors="ignore").splitlines():
                 if line.startswith("OPENAI_API_KEY="):
                     return line.split("=", 1)[1].strip()
-        return os.getenv("OPENAI_API_KEY", "").strip()
+        return ""
 
     def masked_key(self, key: str) -> str:
         """Return a stable, non-sensitive API key preview.
