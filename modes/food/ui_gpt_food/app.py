@@ -4184,12 +4184,18 @@ class MainWindow(QMainWindow):
         return STEP_COUNT - 1
 
     # ---------- API key ----------
+    def env_path(self) -> Path:
+        # The shared OPENAI_API_KEY is stored once at the repository root (the
+        # level that contains the modes/ folder), not duplicated under each mode.
+        # self.root is modes/<mode>, so the repo root is its grandparent.
+        return self.root.parent.parent / ".env"
+
     def read_env_key(self) -> str:
         # Only a key the user explicitly saved through the UI (written to .env) counts
         # as "saved". Do NOT fall back to the OS OPENAI_API_KEY environment variable —
         # otherwise a brand-new project would show a key as already saved before the
         # user has entered one. The field must start empty until the user saves a key.
-        env = self.root / ".env"
+        env = self.env_path()
         if env.exists():
             for line in env.read_text(encoding="utf-8", errors="ignore").splitlines():
                 if line.startswith("OPENAI_API_KEY="):
@@ -4237,7 +4243,7 @@ class MainWindow(QMainWindow):
             if ret != QMessageBox.StandardButton.Yes:
                 editor.clear()
                 return False
-        env = self.root / ".env"
+        env = self.env_path()
         lines = []
         if env.exists():
             lines = [ln for ln in env.read_text(encoding="utf-8").splitlines() if not ln.startswith("OPENAI_API_KEY=")]

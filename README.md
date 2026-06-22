@@ -81,8 +81,10 @@ modes/<mode>/scripts/              # batch_from_folders.py, run_gpt_image2.py, v
 - The **Homepage is shared**: it lists every project from both modes (green cards =
   defect, blue cards = food). `新增專案 / New Project` is where you choose the mode,
   and the host switches to that mode's workflow internally.
-- The shared `OPENAI_API_KEY` is entered once on the Homepage and stored in `.env`.
-  It starts empty on a fresh install until you save a key.
+- The shared `OPENAI_API_KEY` is entered once on the Homepage and stored in a single
+  `.env` at the repository root (the same level as `modes/`), shared by both modes —
+  it is not duplicated under each mode folder. It starts empty on a fresh install
+  until you save a key.
 - Normal runs do **not** write `__pycache__`: `launch_ui.py` sets
   `sys.dont_write_bytecode` and the generation subprocesses get
   `PYTHONDONTWRITEBYTECODE=1`.
@@ -166,8 +168,9 @@ Runtime data and secrets are kept out of source control by the root `.gitignore`
 
 ## 6. Environment, Secrets & Logging
 
-- The shared API key is stored in `.env` as `OPENAI_API_KEY=...`. The UI only ever
-  shows a masked preview; the key is never committed.
+- The shared API key is stored in a single repo-root `.env` (same level as `modes/`)
+  as `OPENAI_API_KEY=...`, shared by both modes. The UI only ever shows a masked
+  preview; the key is never committed.
 - OpenAI pricing for cost estimation is fetched live with a built-in default
   fallback; nothing is cached to disk (there is no `configs/` folder).
 - Logging: key execution nodes (project created/opened, generation

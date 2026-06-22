@@ -1369,7 +1369,8 @@ def main():
                 args.final_height = concrete_h
 
     defect_type = sanitize_defect_type(args.class_name or args.defect_type)
-    load_dotenv_key(project_root())
+    # The shared .env lives at the repository root (grandparent of modes/<mode>).
+    load_dotenv_key(project_root().parent.parent)
 
     if not args.dry_run:
         try:

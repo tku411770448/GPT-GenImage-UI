@@ -193,4 +193,5 @@ scripts/verify_env.py             # environment verification helper
   `run_history`.
 - Runtime data under `modes/defect/project/` is Git-ignored (via the root
   `.gitignore`), along with `log.txt`, `.env`, and export archives. The shared API
-  key lives in `.env` as `OPENAI_API_KEY=...` and is never committed.
+  key lives in a single `.env` at the repository root (same level as `modes/`, shared
+  by both modes) as `OPENAI_API_KEY=...` and is never committed.

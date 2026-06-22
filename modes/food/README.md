@@ -160,4 +160,5 @@ scripts/verify_env.py             # environment verification helper
   `configs/`, `exports/`, `logs/`, or `_ui_state/`.
 - Runtime data under `modes/food/project/` is Git-ignored (via the root
   `.gitignore`), along with `log.txt`, `.env`, and export archives.
-- The shared API key lives in `.env` as `OPENAI_API_KEY=...` and is never committed.
+- The shared API key lives in a single `.env` at the repository root (same level as
+  `modes/`, shared by both modes) as `OPENAI_API_KEY=...` and is never committed.
