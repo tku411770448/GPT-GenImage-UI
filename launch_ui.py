@@ -8,6 +8,11 @@ import faulthandler
 from datetime import datetime
 from pathlib import Path
 
+# Do not litter the project tree with __pycache__/.pyc files. Imports performed
+# after this line (including the mode apps loaded via importlib) skip bytecode
+# caching; spawned generation subprocesses get PYTHONDONTWRITEBYTECODE=1 too.
+sys.dont_write_bytecode = True
+
 try:
     from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStackedWidget, QWidget
 except ImportError as exc:

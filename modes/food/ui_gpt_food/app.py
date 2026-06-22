@@ -5985,7 +5985,7 @@ class MainWindow(QMainWindow):
             self.set_generation_ui_locked(True)
         self.log_box_append("\n===== " + label + " =====\n[RUN] " + " ".join(str(c) for c in cmd) + "\n")
         self.status_label.setText(f"Status: running - {label}")
-        p=QProcess(self); p.setWorkingDirectory(str(self.root)); qenv=QProcessEnvironment.systemEnvironment(); qenv.insert("PYTHONIOENCODING","utf-8"); qenv.insert("PYTHONUNBUFFERED","1")
+        p=QProcess(self); p.setWorkingDirectory(str(self.root)); qenv=QProcessEnvironment.systemEnvironment(); qenv.insert("PYTHONIOENCODING","utf-8"); qenv.insert("PYTHONUNBUFFERED","1"); qenv.insert("PYTHONDONTWRITEBYTECODE","1")
         key=self.read_env_key()
         if key:
             qenv.insert("OPENAI_API_KEY", key)
