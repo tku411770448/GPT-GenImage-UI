@@ -5363,7 +5363,7 @@ class MainWindow(QMainWindow):
         if proc.returncode == 0:
             return True
         detail = (proc.stdout or "") + (proc.stderr or "")
-        install_cmd = f'"{sys.executable}" -m pip install -r "{self.root / "requirements.txt"}"'
+        install_cmd = f'"{sys.executable}" -m pip install -r "{self.root.parent.parent / "requirements.txt"}"'
         QMessageBox.critical(
             self,
             "Generation runtime not ready",
@@ -5451,7 +5451,7 @@ class MainWindow(QMainWindow):
             message = (
                 "生成失敗原因：目前啟動 UI 的 Python 環境缺少 openai 套件。\n\n"
                 "請在同一個環境執行：\n"
-                f'"{sys.executable}" -m pip install -r "{self.root / "requirements.txt"}"\n\n'
+                f'"{sys.executable}" -m pip install -r "{self.root.parent.parent / "requirements.txt"}"\n\n'
                 "錯誤摘要：\n" + text[-1600:]
             )
             return title, message, "生成失敗：缺少 openai 套件。"

@@ -358,7 +358,7 @@ def main() -> None:
         except Exception as exc:
             raise SystemExit(
                 "Missing or incompatible dependency: openai. Install project requirements in the same Python environment that launches the UI:\n"
-                f"  {sys.executable} -m pip install -r {root / 'requirements.txt'}\n"
+                f"  {sys.executable} -m pip install -r {root.parent.parent / 'requirements.txt'}\n"
                 f"Original import error: {type(exc).__name__}: {exc}"
             )
 

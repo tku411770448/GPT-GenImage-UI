@@ -1,71 +1,38 @@
-# Python cache
+# Python bytecode cache. The app disables bytecode writing at runtime
+# (sys.dont_write_bytecode + PYTHONDONTWRITEBYTECODE), so normal runs do not
+# create these; ignored anyway as a safety net.
 __pycache__/
 *.py[cod]
 *.pyo
 
-# Config
-config/
-configs/
-
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
 env/
-*.txt
 
 # VS Code local settings
 .vscode/
 
-# Logs (single shared log file log.txt at the repo root + any stray logs folders)
-*.log
+# Single shared log file at the repo root (key execution nodes + crash diagnostics).
+# Matches log.txt at any depth and any *.log file.
 log.txt
-logs/
+*.log
 
-# Temporary files
-tmp/
-temp/
-.cache/
+# Local scratch prompt file (developer note, not part of the project)
+codex_prompt.txt
 
-# Output / generated files
-outputs/
-output/
-runs/
-exports/
-artifacts/
-export/
-results/
-# Per-mode runtime project data lives under modes/<mode>/project/ (ignored at any depth).
-project/
+# Per-project runtime data: uploaded images, runs/, generated images, exports and
+# project_state.json all live under modes/<mode>/project/ (matched at any depth).
 **/project/
-# Legacy runtime folder names kept ignored for backward compatibility.
-project_defect/
-project_food/
-**/project_defect/
-**/project_food/
 
-# Project-generated images and UI byproducts
-project/**/*.png
-project/**/*.jpg
-project/**/*.jpeg
-project/**/*.webp
-project/**/*.bmp
-project/**/*.tif
-project/**/*.tiff
-project/**/runs/
-project/**/exports/
-project/**/logs/
-
-# Images or generated datasets, 視情況調整
-*.zip
+# Export archives produced by the Export step
 *.zip
 *.tar
 *.tar.gz
 
-# Secrets / API keys
+# Secrets / API keys (the UI stores the shared key in .env)
 .env
 *.key
-secrets.json
-api_key.txt
 
 # OS files
 .DS_Store
