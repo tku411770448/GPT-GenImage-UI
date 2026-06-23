@@ -885,15 +885,47 @@ class PromptGroupList(QListWidget):
             traceback.print_exc()
 
     def mousePressEvent(self, event):  # noqa: N802
-        # Clicking an empty area must NOT clear the multi-selection. The default
-        # QListWidget behaviour deselects every item on a blank click, which would
-        # silently drop the user's chosen 引用組別 and (via group_selection_changed ->
-        # mark_dirty) wrongly un-complete the already-finished later steps. Only a
-        # click that lands on an actual item may change the selection.
-        if self.itemAt(event.position().toPoint()) is None:
+        # The 引用組別 list is selection-by-CLICK only. A press that does not land on an
+        # item must not clear the multi-selection, and no press may arm a rubber-band
+        # marquee (handled in mouseMoveEvent/mouseReleaseEvent). Otherwise an accidental
+        # blank click OR a drag would draw a blue selection box, silently rewrite the
+        # user's chosen groups and (via group_selection_changed -> mark_dirty) wrongly
+        # un-complete the already-finished later steps.
+        if event.button() == Qt.LeftButton:
+            pos = event.position().toPoint()
+            self._press_pos = pos
+            self._dragging = False
+            self._press_on_blank = self.itemAt(pos) is None
+            if self._press_on_blank:
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):  # noqa: N802
+        # Never start/extend a rubber-band selection rectangle while the left button is
+        # held: dragging inside the strip would draw a blue marquee box and rewrite the
+        # selection. Swallow every such move (flagging a real drag once it passes the
+        # drag-distance threshold).
+        if (event.buttons() & Qt.LeftButton) and getattr(self, "_press_pos", None) is not None:
+            if (event.position().toPoint() - self._press_pos).manhattanLength() >= QApplication.startDragDistance():
+                self._dragging = True
             event.accept()
             return
-        super().mousePressEvent(event)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        # A gesture that began on blank space, or that became a drag, is a complete
+        # no-op so the chosen groups (and the later steps) stay intact. A plain
+        # press+release on an item still resolves as a normal click selection.
+        began_blank = getattr(self, "_press_on_blank", False)
+        dragged = getattr(self, "_dragging", False)
+        self._press_pos = None
+        self._dragging = False
+        self._press_on_blank = False
+        if began_blank or dragged:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):  # noqa: N802
         # Use vertical mouse wheel to scroll the thumbnail strip horizontally.
