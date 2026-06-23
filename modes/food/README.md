@@ -94,7 +94,9 @@ modes/food/project/<project_name>/data/
   section fills the width below with an enlarged font.
 - Ctrl/Shift multi-select in `引用組別` (max **16** groups). The chosen groups are the
   exact images sent to generation, passed to the backend inline via
-  `--selected-stems` (no stems file is written to disk).
+  `--selected-stems` (no stems file is written to disk). Clicking an **empty area** of
+  the list does **not** clear the current selection, so an accidental blank click can
+  no longer drop your chosen groups or reset the later steps to not-yet-run.
 - The prompt that is sent equals the `輸入指令` text exactly, and is recorded per run
   as `runs/<run_name>/prompt.txt`.
 

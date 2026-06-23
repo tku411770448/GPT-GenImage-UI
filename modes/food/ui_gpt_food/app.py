@@ -881,6 +881,17 @@ class PromptGroupList(QListWidget):
         except Exception:
             traceback.print_exc()
 
+    def mousePressEvent(self, event):  # noqa: N802
+        # Clicking an empty area must NOT clear the multi-selection. The default
+        # QListWidget behaviour deselects every item on a blank click, which would
+        # silently drop the user's chosen 引用組別 and (via group_selection_changed ->
+        # mark_dirty) wrongly un-complete the already-finished later steps. Only a
+        # click that lands on an actual item may change the selection.
+        if self.itemAt(event.position().toPoint()) is None:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     def wheelEvent(self, event):  # noqa: N802
         # Use vertical mouse wheel to scroll the thumbnail strip horizontally.
         bar = self.horizontalScrollBar()

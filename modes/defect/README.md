@@ -124,7 +124,9 @@ delete all/selected Target Area · `Up`/`Down` switch image.
   enlarged font.
 - Ctrl/Shift multi-select in `引用組別` (max **16** groups). The chosen groups are the
   exact images sent to generation, passed to the backend inline via
-  `--selected-stems` (no stems file on disk).
+  `--selected-stems` (no stems file on disk). Clicking an **empty area** of the list
+  does **not** clear the current selection, so an accidental blank click can no longer
+  drop your chosen groups or reset the later steps to not-yet-run.
 - The prompt that is sent equals the `輸入指令` text exactly — ROI / Target Area
   positions are **not** added to the prompt text; they are conveyed visually through
   the annotation-reference image (Image 2). The prompt is recorded per run as
