@@ -1382,21 +1382,6 @@ class CropCanvas(QLabel):
         self.active_crop_rect = rect
 
 
-def halves_avg_colors(image) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
-    """Average RGB of the image's left half and right half.
-
-    Used so the ROI box (left colour) and Target Area box (right colour) are tinted
-    from the underlying material — identically in the Step 4 editor and the rendered
-    reference_image. Downscaling to 2x1 with BOX resampling averages each half.
-    """
-    try:
-        small = image.convert("RGB").resize((2, 1), Image.BOX)
-        l = small.getpixel((0, 0)); r = small.getpixel((1, 0))
-        return (int(l[0]), int(l[1]), int(l[2])), (int(r[0]), int(r[1]), int(r[2]))
-    except Exception:
-        return (255, 23, 68), (0, 194, 255)
-
-
 class RoiTargetCanvas(QLabel):
     region_changed = Signal()
     canvas_error = Signal(str)
@@ -1431,8 +1416,7 @@ class RoiTargetCanvas(QLabel):
         self.resize_active: Optional[dict[str, Any]] = None
         self.handle_size = 10
         self.min_region_size = 4
-        # ROI box uses the image's left-half colour, Target Area box the right-half
-        # colour; sampled per-image in set_image(). These are only fallbacks.
+        # Fixed ROI/Target box colours: ROI red, Target Area blue.
         self.roi_color = QColor("#ff1744")
         self.target_color = QColor("#00c2ff")
 
@@ -1468,9 +1452,6 @@ class RoiTargetCanvas(QLabel):
             img = Image.open(self.image_path).convert("RGB")
             self.image_size = img.size
             self.pix = pil_to_pixmap(img)
-            l_rgb, r_rgb = halves_avg_colors(img)
-            self.roi_color = QColor(*l_rgb)
-            self.target_color = QColor(*r_rgb)
             self.setText("")
             reg = parse_region_txt(self.region_txt_path())
             self.rois = []
@@ -4999,14 +4980,13 @@ class MainWindow(QMainWindow):
             self.state.regions = {}
         self.state.regions[p.stem] = {"rois": [list(r) for r in rois], "targets": targets}
         # Render the Image 2 annotation reference to match the Step 4 editor exactly:
-        # the ROI box uses the image's left-half colour and the Target Area box the
-        # right-half colour, drawn as a 3px outline + light semi-transparent fill.
+        # ROI box = red, Target Area box = blue, each a 3px outline + light fill.
         try:
             ensure_dir(self.reference_dir())
             ref_path = self.reference_dir()/f"{p.stem}.png"
             base = Image.open(p).convert("RGB")
             size = base.size
-            roi_rgb, target_rgb = halves_avg_colors(base)
+            roi_rgb, target_rgb = (255, 23, 68), (0, 194, 255)
             if rois or targets:
                 overlay = Image.new("RGBA", size, (0, 0, 0, 0))
                 odraw = ImageDraw.Draw(overlay)
@@ -5116,7 +5096,7 @@ class MainWindow(QMainWindow):
             "Image 1 是未標註的原始待編輯影像，也是唯一要被實際編輯與保留風格的圖像。\n"
             "Image 2 是 ROI / Target Area 標註參考圖，只能用來判斷位置，不可被複製、描繪或當成輸出內容。\n\n"
             "請根據 Image 2 中 ROI 標示的位置，找到 Image 1 對應位置的原始瑕疵或指定物件，並將該位置自然還原成周圍一致的背景材質。\n"
-            "請只把 ROI 中的瑕疵外觀當作參考特徵，不要保留原位置的瑕疵，也不要保留 ROI 的任何標註痕跡。\n"
+            "請只把 ROI 中的瑕疵外觀當作參考特徵，刪除原位置的瑕疵，也不要保留 ROI 的任何標註痕跡。\n"
             f"接著請在 Image 2 中 Target Area 所標示的允許區域內，隨機生成 1~4 個與 ROI 來源特徵相似的 `{c}` 目標。\n"
             "新生成目標必須只出現在 Target Area 內；若目標屬於 burr，請讓它精準貼附在紙板邊緣或物件邊緣，不要漂浮在平面中央、背景或金屬導軌上。\n"
             "生成目標需小型、細微、不規則、低對比且自然，接近真實工業檢測影像中的微小邊緣毛邊、纖維破損、暗色小點或細微污染；可被檢測辨識，但不要誇張放大。\n"

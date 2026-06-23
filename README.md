@@ -176,8 +176,9 @@ Runtime data and secrets are kept out of source control by the root `.gitignore`
 - Logging: the single repo-root `log.txt` records the app startup time on launch,
   per-step events (entering/submitting each step, ROI/Target saves, generation
   start/finish/pause), and full tracebacks for any uncaught or per-action error
-  (also surfaced to the user in a dialog). There is no per-project or top-level
-  `logs/` folder.
+  (also surfaced to the user in a dialog). On each launch, entries older than 6
+  months (day granularity) are automatically pruned. There is no per-project or
+  top-level `logs/` folder.
 
 ---
 

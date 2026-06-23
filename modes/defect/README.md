@@ -98,11 +98,10 @@ modes/defect/project/<project_name>/data/raw_image/
   `target_area_masks/` files. Because it is persisted, revisiting Step 4 (or
   reopening the project) restores exactly what you drew.
 - Saving also renders an **annotation reference image** into `data/reference_image/`.
-  It is drawn to look **identical to the Step 4 editor**: the ROI box uses the
-  image's **left-half** colour and the Target Area box uses the **right-half** colour,
-  each as a 3px outline + a light semi-transparent fill (so what you draw and what is
-  sent to the API as Image 2 match). It is paired one-to-one with its raw image by
-  file stem and becomes **Image 2** during generation:
+  It is drawn to look **identical to the Step 4 editor**: the ROI box is **red** and
+  the Target Area box is **blue**, each a 3px outline + a light semi-transparent fill
+  (so what you draw and what is sent to the API as Image 2 match). It is paired
+  one-to-one with its raw image by file stem and becomes **Image 2** during generation:
 
 ```text
 modes/defect/project/<project_name>/data/raw_image/        # Image 1: clean originals
