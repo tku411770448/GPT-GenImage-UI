@@ -6,8 +6,7 @@ import sys
 import traceback
 import faulthandler
 import re
-import calendar
-from datetime import datetime, date
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # Do not litter the project tree with __pycache__/.pyc files. Imports performed
@@ -256,32 +255,32 @@ class UnifiedMainWindow(QMainWindow):
 MainWindow = UnifiedMainWindow
 
 
-def prune_old_log(path: Path, months: int = 6) -> None:
-    """Drop log entries older than `months` months (day granularity).
+def prune_old_log(path: Path, max_age: timedelta = timedelta(minutes=10)) -> None:
+    """Drop log entries older than `max_age` (full-timestamp, minute/second granularity).
 
     log.txt is one append-only file whose entries start with a timestamped line such
-    as ``[YYYY-MM-DD...]`` or ``===== YYYY-MM-DD... =====`` (a crash banner may be
-    followed by un-timestamped traceback lines). Each line inherits the keep/drop
-    decision of the most recent timestamped line, so a whole multi-line traceback is
-    pruned as a unit. Runs once per launch; safe no-op if the file is missing/locked.
+    as ``[YYYY-MM-DDTHH:MM:SS...]`` or ``===== YYYY-MM-DDTHH:MM:SS... =====`` (a crash
+    banner may be followed by un-timestamped traceback lines). Each line inherits the
+    keep/drop decision of the most recent timestamped line, so a whole multi-line
+    traceback is pruned as a unit. Runs once per launch; safe no-op if the file is
+    missing/locked.
+
+    NOTE: the threshold is intentionally short (10 minutes) so the timed deletion can
+    be verified quickly during testing; restore a longer age for production.
     """
     try:
         if not path.exists():
             return
-        today = datetime.now().date()
-        month_index = today.year * 12 + (today.month - 1) - months
-        y, m = divmod(month_index, 12)
-        m += 1
-        cutoff = date(y, m, min(today.day, calendar.monthrange(y, m)[1]))
-        line_date = re.compile(r"^(?:\[|=====\s+)(\d{4})-(\d{2})-(\d{2})")
+        cutoff = datetime.now() - max_age
+        line_ts = re.compile(r"^(?:\[|=====\s+)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})")
         lines = path.read_text(encoding="utf-8", errors="ignore").splitlines(keepends=True)
         kept: list[str] = []
         keep_current = True
         for ln in lines:
-            md = line_date.match(ln)
+            md = line_ts.match(ln)
             if md:
                 try:
-                    keep_current = date(int(md.group(1)), int(md.group(2)), int(md.group(3))) >= cutoff
+                    keep_current = datetime.fromisoformat(md.group(1)) >= cutoff
                 except ValueError:
                     keep_current = True
             if keep_current:
@@ -297,8 +296,9 @@ def main() -> None:
     app = QApplication.instance() or QApplication(sys.argv)
     # Single shared log file at the repo root (replaces the old logs/ folder).
     app_log = root / "log.txt"
-    # Housekeeping: delete log entries older than 6 months (by day) on each launch.
-    prune_old_log(app_log, months=6)
+    # Housekeeping: delete log entries older than 10 minutes on each launch (short
+    # threshold for testing the timed deletion; raise it for production use).
+    prune_old_log(app_log, max_age=timedelta(minutes=10))
     try:
         crash_log = app_log.open("a", encoding="utf-8")
         faulthandler.enable(file=crash_log, all_threads=True)

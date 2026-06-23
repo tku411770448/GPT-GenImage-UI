@@ -158,7 +158,9 @@ scripts/verify_env.py             # environment verification helper
   written (no `project_state.json`, `configs/`, `exports/`, `logs/`, or `_ui_state/`).
   Projects are listed from a single `modes/food/project/project_index.json` registry,
   which also stores each project's per-step completion flags so reopening restores the
-  exact step progress.
+  exact step progress. Returning to an earlier completed step to view or select an
+  existing input does not change progress; only actually re-editing that step's
+  products marks it and every later step as not-yet-run.
 - Runtime data under `modes/food/project/` is Git-ignored (via the root
   `.gitignore`), along with `log.txt`, `.env`, and export archives.
 - The shared API key lives in a single `.env` at the repository root (same level as

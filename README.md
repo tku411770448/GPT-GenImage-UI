@@ -145,6 +145,9 @@ modes/<mode>/project/<project_name>/
   true/false for each step) and — for defect — the ROI/Target `regions` geometry.
   The Homepage uses it to list/reopen projects, and reopening restores the exact
   step progress and annotations (still cross-checked against on-disk artifacts).
+  Returning to an earlier completed step to **view or select** an existing input does
+  **not** change progress; only actually **re-editing** that step's products marks it
+  and every later step as not-yet-run.
 - Generated image names are `<run_name>-<YYYY>-<MM>-<DD>-<HH>-<mm>-<counter>`; the
   counter never repeats, so previous outputs are never overwritten.
 - Export copies the selected runs' images straight to a folder you pick
@@ -174,10 +177,13 @@ Runtime data and secrets are kept out of source control by the root `.gitignore`
 - OpenAI pricing for cost estimation is fetched live with a built-in default
   fallback; nothing is cached to disk (there is no `configs/` folder).
 - Logging: the single repo-root `log.txt` records the app startup time on launch,
-  per-step events (entering/submitting each step, ROI/Target saves, generation
-  start/finish/pause), and full tracebacks for any uncaught or per-action error
-  (also surfaced to the user in a dialog). On each launch, entries older than 6
-  months (day granularity) are automatically pruned. There is no per-project or
+  per-step events (entering/submitting each step, each ROI/Target box **add or
+  delete** with its `(x1,y1,x2,y2 …)` coordinates, generation start/finish/pause),
+  and full tracebacks for any uncaught or per-action error (also surfaced to the user
+  in a dialog). Merely selecting/viewing an already-framed image is **not** logged.
+  On each launch, entries older than **10 minutes** (full-timestamp granularity) are
+  automatically pruned — a deliberately short threshold so the timed deletion can be
+  verified during testing; raise it for production. There is no per-project or
   top-level `logs/` folder.
 
 ---

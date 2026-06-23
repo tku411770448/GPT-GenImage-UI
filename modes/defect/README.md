@@ -92,7 +92,11 @@ modes/defect/project/<project_name>/data/raw_image/
 - Draw one or more **ROI** rectangles over existing/original defect locations, and
   **Target Area** regions where new defects may be generated (rectangle or polygon).
 - In selection mode, ROI and rectangular Target Area boxes can be resized with corner
-  and edge handles. The step auto-saves after edits.
+  and edge handles. The step auto-saves after edits. Each actual **add or delete** of
+  a box is written to `log.txt` with its `(x1,y1,x2,y2 …)` coordinates; merely
+  selecting/viewing another framed image is **not** logged and does **not** change the
+  sidebar step progress (only a real geometry edit marks Step 4 and the later steps as
+  not-yet-run).
 - The ROI/Target geometry is saved in the `project_index.json` record (the `regions`
   map, keyed by image stem) — there are no separate `regions/`, `masks/`, or
   `target_area_masks/` files. Because it is persisted, revisiting Step 4 (or

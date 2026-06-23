@@ -4860,14 +4860,15 @@ class MainWindow(QMainWindow):
             self.region_selection_status.setText(f"目前選取：{count} 組（Step 5 決定輸入組合）")
 
     def region_selected_groups_changed(self, paths: object) -> None:
-        """Step 3 selection is for viewing/navigation only, not final generation."""
+        """Selection is for viewing/navigation only — NOT an edit. It must not mark the
+        step dirty, otherwise merely clicking another image would wrongly un-complete
+        the already-finished later steps."""
         try:
             selected_paths = [Path(str(p)) for p in (paths or [])]
         except Exception:
             selected_paths = []
         self.step4_selected_view_stems = [p.stem for p in selected_paths]
         self.update_region_selection_status()
-        self.mark_dirty(4)
 
     def auto_save_current_regions(self) -> None:
         self.save_current_regions(silent=True)
@@ -4880,7 +4881,24 @@ class MainWindow(QMainWindow):
         # regions/masks/target_area files (those folders are unused for food).
         p = self.region_canvas.image_path
         if not p: return
-        self.region_status.setText(self.region_status_text(p)); self.mark_dirty(4)
+        # Only treat this as an edit when the geometry actually changed. Merely
+        # switching/selecting another image (no edit) must NOT mark the step dirty —
+        # that would wrongly un-complete the already-finished later steps.
+        rois = tuple(tuple(int(v) for v in roi[:4]) for roi in getattr(self.region_canvas, "rois", []))
+        tgts = []
+        for shape in getattr(self.region_canvas, "target_areas", []):
+            if shape.get("kind") == "polygon":
+                tgts.append(("poly", tuple((int(x), int(y)) for x, y in shape.get("points", []))))
+            else:
+                tgts.append(("rect", tuple(int(v) for v in target_area_bbox(shape))))
+        sig = (rois, tuple(tgts))
+        if not isinstance(getattr(self, "_region_sig", None), dict):
+            self._region_sig = {}
+        changed = self._region_sig.get(p.stem) != sig
+        self._region_sig[p.stem] = sig
+        self.region_status.setText(self.region_status_text(p))
+        if changed:
+            self.mark_dirty(4)
         if hasattr(self, "prompt_group_grid"):
             self.refresh_prompt_groups()
         if not silent: QMessageBox.information(self,"Done","目前圖像的 Target Area 已儲存。")

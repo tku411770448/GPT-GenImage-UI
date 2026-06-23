@@ -4951,19 +4951,33 @@ class MainWindow(QMainWindow):
             self.region_selection_status.setText(f"目前選取：{count} 組（Step 5 決定輸入組合）")
 
     def region_selected_groups_changed(self, paths: object) -> None:
-        """Step 4 selection is for viewing/navigation only, not final generation."""
+        """Step 4 selection is for viewing/navigation only — NOT an edit. It must not
+        mark Step 4 dirty, otherwise merely clicking another framed image would
+        wrongly un-complete the already-finished later steps."""
         try:
             selected_paths = [Path(str(p)) for p in (paths or [])]
         except Exception:
             selected_paths = []
         self.step4_selected_view_stems = [p.stem for p in selected_paths]
         self.update_region_selection_status()
-        self.mark_dirty(4)
 
     def auto_save_current_regions(self) -> None:
         self.save_current_regions(silent=True)
         self.refresh_prompt_groups()
         self.update_region_selection_status()
+
+    def _format_regions_for_log(self, rois, targets) -> str:
+        """Readable per-box coordinate list for the Step 4 change log."""
+        roi_str = ", ".join(f"({r[0]},{r[1]},{r[2]},{r[3]})" for r in rois) or "-"
+        tgt_parts: list[str] = []
+        for t in targets:
+            if t.get("kind") == "polygon":
+                pts = t.get("points", [])
+                tgt_parts.append("poly[" + " ".join(f"({int(x)},{int(y)})" for x, y in pts) + "]")
+            else:
+                rr = t.get("rect", [])
+                tgt_parts.append(f"({rr[0]},{rr[1]},{rr[2]},{rr[3]})" if len(rr) >= 4 else str(rr))
+        return f"ROI[{len(rois)}]={roi_str}; Target[{len(targets)}]={', '.join(tgt_parts) or '-'}"
 
     def save_current_regions(self, silent: bool=False) -> None:
         p=self.region_canvas.image_path
@@ -4978,7 +4992,17 @@ class MainWindow(QMainWindow):
                 targets.append({"kind": "rect", "rect": list(target_area_bbox(shape))})
         if not isinstance(self.state.regions, dict):
             self.state.regions = {}
-        self.state.regions[p.stem] = {"rois": [list(r) for r in rois], "targets": targets}
+        new_geo = {"rois": [list(r) for r in rois], "targets": targets}
+        prev_geo = self.state.regions.get(p.stem)
+        changed = prev_geo != new_geo
+        self.state.regions[p.stem] = new_geo
+        if not changed:
+            # No actual edit (e.g. switching images, or re-entering Step 4 and only
+            # selecting/viewing). Do NOT re-render, do NOT log, and crucially do NOT
+            # mark Step 4 dirty — that would wrongly un-complete the later steps.
+            if not silent:
+                QMessageBox.information(self, "Done", "目前圖像的 ROI / Target Area 已儲存。")
+            return
         # Render the Image 2 annotation reference to match the Step 4 editor exactly:
         # ROI box = red, Target Area box = blue, each a 3px outline ONLY (no fill).
         try:
