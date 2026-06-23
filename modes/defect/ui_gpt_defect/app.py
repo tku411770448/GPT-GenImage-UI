@@ -5074,7 +5074,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.save_state()
-        self.log_event(f"Step 4 ROI/Target saved for {p.stem}: ROI={len(rois)}, Target={len(targets)}")
+        self.log_event(f"Step 4 ROI/Target changed for {p.stem}: {self._format_regions_for_log(rois, targets)}")
         self.region_status.setText(self.region_status_text(p)); self.mark_dirty(4)
         if hasattr(self, "prompt_group_grid"):
             self.refresh_prompt_groups()
