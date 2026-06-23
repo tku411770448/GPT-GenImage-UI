@@ -1548,13 +1548,13 @@ class RoiTargetCanvas(QLabel):
         if self.drag_start and self.drag_current:
             rect = QRect(self.drag_start, self.drag_current).normalized()
             if self.mode == "roi":
-                color = self.roi_color; fill = QColor(color.red(), color.green(), color.blue(), 30)
+                color = self.roi_color
             elif self.mode == "target_rect":
-                color = self.target_color; fill = QColor(color.red(), color.green(), color.blue(), 30)
+                color = self.target_color
             else:
-                color = QColor("#fbbf24"); fill = QColor(251, 191, 36, 25)
+                color = QColor("#fbbf24")
             painter.setPen(QPen(color, 3, Qt.PenStyle.DashLine if self.mode in {"select_roi", "select_target"} else Qt.PenStyle.SolidLine))
-            painter.setBrush(fill)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(rect)
         if self.mode == "target_poly" and self.poly_points:
             painter.setPen(QPen(self.target_color, 3))
@@ -1577,7 +1577,7 @@ class RoiTargetCanvas(QLabel):
     def _draw_rect_region(self, painter: QPainter, region: tuple[int, int, int, int], color: QColor, label: str, selected: bool = False) -> None:
         disp = self._image_to_display_rect(region)
         painter.setPen(QPen(QColor("#fbbf24") if selected else color, 5 if selected else 3))
-        painter.setBrush(QColor(color.red(), color.green(), color.blue(), 35))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(disp)
         self._draw_label_above(painter, disp, label + ("  已選取" if selected else ""))
 
@@ -1585,7 +1585,7 @@ class RoiTargetCanvas(QLabel):
         color = self.target_color
         pen_color = QColor("#fbbf24") if selected else color
         painter.setPen(QPen(pen_color, 5 if selected else 3))
-        painter.setBrush(QColor(color.red(), color.green(), color.blue(), 35))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         if shape.get("kind") == "polygon":
             pts = [self._image_to_display_point(x, y) for x, y in shape.get("points", [])]
             if len(pts) >= 3:
@@ -4980,7 +4980,7 @@ class MainWindow(QMainWindow):
             self.state.regions = {}
         self.state.regions[p.stem] = {"rois": [list(r) for r in rois], "targets": targets}
         # Render the Image 2 annotation reference to match the Step 4 editor exactly:
-        # ROI box = red, Target Area box = blue, each a 3px outline + light fill.
+        # ROI box = red, Target Area box = blue, each a 3px outline ONLY (no fill).
         try:
             ensure_dir(self.reference_dir())
             ref_path = self.reference_dir()/f"{p.stem}.png"
@@ -4994,12 +4994,12 @@ class MainWindow(QMainWindow):
                     if shape.get("kind") == "polygon":
                         pts = [(int(x), int(y)) for x, y in shape.get("points", [])]
                         if len(pts) >= 3:
-                            odraw.polygon(pts, fill=(*target_rgb, 30), outline=(*target_rgb, 255), width=3)
+                            odraw.polygon(pts, fill=None, outline=(*target_rgb, 255), width=3)
                     else:
                         rect = shape.get("rect") or [0, 0, 0, 0]
-                        odraw.rectangle([int(v) for v in rect[:4]], fill=(*target_rgb, 30), outline=(*target_rgb, 255), width=3)
+                        odraw.rectangle([int(v) for v in rect[:4]], fill=None, outline=(*target_rgb, 255), width=3)
                 for roi in rois:
-                    odraw.rectangle(list(roi), fill=(*roi_rgb, 30), outline=(*roi_rgb, 255), width=3)
+                    odraw.rectangle(list(roi), fill=None, outline=(*roi_rgb, 255), width=3)
                 composed = Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
                 composed.save(ref_path)
             elif ref_path.exists():
