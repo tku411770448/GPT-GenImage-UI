@@ -596,6 +596,46 @@ class ImageDropList(QListWidget):
             return
         super().keyPressEvent(event)
 
+    def mousePressEvent(self, event):  # noqa: N802
+        # The upload list's selection only drives the preview. A press on empty space
+        # must NOT clear the selection (that would make the currently previewed image
+        # vanish), and a press must not arm a rubber-band marquee (see mouseMoveEvent /
+        # mouseReleaseEvent). A click on a real item still selects it normally.
+        if event.button() == Qt.LeftButton:
+            pos = event.position().toPoint()
+            self._press_pos = pos
+            self._dragging = False
+            self._press_on_blank = self.itemAt(pos) is None
+            if self._press_on_blank:
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):  # noqa: N802
+        # Never start/extend a rubber-band selection rectangle while the left button is
+        # held: it would silently change/clear the previewed image. Swallow such moves.
+        if (event.buttons() & Qt.LeftButton) and getattr(self, "_press_pos", None) is not None:
+            if (event.position().toPoint() - self._press_pos).manhattanLength() >= QApplication.startDragDistance():
+                self._dragging = True
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        # A gesture that began on blank space, or that became a drag, is a complete
+        # no-op so the current preview selection stays put. A plain press+release on an
+        # item still resolves as a normal click (and Ctrl/Shift multi-select for
+        # deleting several uploads still works).
+        began_blank = getattr(self, "_press_on_blank", False)
+        dragged = getattr(self, "_dragging", False)
+        self._press_pos = None
+        self._dragging = False
+        self._press_on_blank = False
+        if began_blank or dragged:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
 
 class ThumbGrid(QListWidget):
     selected_path_changed = Signal(str)

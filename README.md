@@ -181,10 +181,8 @@ Runtime data and secrets are kept out of source control by the root `.gitignore`
   delete** with its `(x1,y1,x2,y2 …)` coordinates, generation start/finish/pause),
   and full tracebacks for any uncaught or per-action error (also surfaced to the user
   in a dialog). Merely selecting/viewing an already-framed image is **not** logged.
-  On each launch, entries older than **10 minutes** (full-timestamp granularity) are
-  automatically pruned — a deliberately short threshold so the timed deletion can be
-  verified during testing; raise it for production. There is no per-project or
-  top-level `logs/` folder.
+  On each launch, entries older than **6 months** (day granularity) are automatically
+  pruned. There is no per-project or top-level `logs/` folder.
 
 ---
 
