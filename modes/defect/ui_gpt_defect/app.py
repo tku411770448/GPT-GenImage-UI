@@ -919,6 +919,7 @@ class CheckableRunCombo(QComboBox):
         self.lineEdit().setReadOnly(True)
         self.lineEdit().setPlaceholderText("選擇要匯出的 runs")
         self._guard = False
+        self._intended_text = ""
         self._model.itemChanged.connect(self._on_item_changed)
         self._list_view.viewport().installEventFilter(self)
         self.lineEdit().installEventFilter(self)
@@ -994,9 +995,20 @@ class CheckableRunCombo(QComboBox):
             checked = [self._model.item(r).text() for r in range(1, self._model.rowCount())
                        if self._model.item(r).checkState() == Qt.Checked]
             text = "、".join(checked)
+        self._intended_text = text
         le = self.lineEdit()
         if le is not None:
             le.setText(text)
+        # An editable QComboBox re-syncs its line edit to currentText() (the current
+        # row's display text) when the current row's data changes — e.g. toggling the
+        # checkbox of the highlighted run — which would otherwise replace this
+        # multi-select text with a single run name. Re-assert it after Qt's sync.
+        QTimer.singleShot(0, self._reassert_text)
+
+    def _reassert_text(self) -> None:
+        le = self.lineEdit()
+        if le is not None and le.text() != self._intended_text:
+            le.setText(self._intended_text)
 
     def _event_point(self, event):
         if hasattr(event, "position"):
