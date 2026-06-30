@@ -6,8 +6,8 @@ datasets. It bundles two closely related workflows ("modes") behind one window:
 
 | Mode | Purpose | API workflow | Inputs |
 |------|---------|--------------|--------|
-| **Defect** (`Gen Defect`) | Generate new defects onto clean images, guided by an annotation reference | `reference-guided-edit` (two images per call) | `data/raw_image/` + `data/reference_image/` |
-| **Food** (`Gen Food`) | Generate food appearance/placement variations from a text prompt | `prompt-only-edit` (one image per call) | flat `data/` |
+| **Defect** (`Gen Defect`) | Generate new defects onto clean images, guided by an annotation reference | `reference-guided-edit` (two images per call) | `data/crop_image/` + `data/reference_image/` (uploads staged in `data/raw_image/`) |
+| **Food** (`Gen Food`) | Generate food appearance/placement variations from a text prompt | `prompt-only-edit` (one image per call) | `data/crop_image/` (uploads staged flat in `data/`) |
 
 Each mode is a guided, multi-step workflow. Per-project inputs, runs, generated
 images and state live under `modes/<mode>/project/<project_name>/`. Key execution
@@ -153,8 +153,9 @@ modes/<mode>/project/<project_name>/
 - Export copies the selected runs' images straight to a folder you pick
   (`<project_name>-<timestamp>`, optionally zipped); it does not keep an `exports/`
   folder in the project.
-- Duplicating a project copies only its uploaded images (`data/`), not the generated
-  `runs/`, so every project keeps an independent run counter (a copy starts at `run1`).
+- Duplicating a project copies only its `data/` folder (staged uploads + prepared
+  crop inputs), not the generated `runs/`, so every project keeps an independent run
+  counter (a copy starts at `run1`).
 
 ### What Git ignores
 

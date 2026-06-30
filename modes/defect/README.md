@@ -40,7 +40,7 @@ python launch_ui.py
 flowchart TD
     S1["Step 1 · Homepage / 專案管理<br/>create/open/copy/delete project · shared OpenAI API key"]
     S2["Step 2 · 資料上傳<br/>import or drag clean images into data/raw_image/"]
-    S3["Step 3 · 裁切 / 使用原始圖片<br/>use originals or crop fixed-size inputs (edited in place)"]
+    S3["Step 3 · 裁切 / 使用原始圖片<br/>use originals or crop fixed-size inputs into data/crop_image/"]
     S4["Step 4 · ROI / Target Area 框選<br/>draw ROI + allowed areas → data/reference_image/"]
     S5["Step 5 · Prompt 編輯<br/>引用組別 + Prompt 來源設定 + 輸入指令"]
     S6["Step 6 · 模型與生成參數<br/>model · quality · size · output count · 輸出資料夾名稱"]
@@ -73,9 +73,10 @@ flowchart TD
 
 - Import images with the file picker or drag-and-drop; the most recently added image
   is previewed immediately.
-- `data/` contains exactly two folders, paired one-to-one by file stem:
-  `raw_image/` (clean originals, **Image 1**) and `reference_image/` (the annotation
-  reference, **Image 2**). Uploads go to `raw_image/`:
+- `data/` holds the staged uploads plus the prepared generation inputs. Uploads go
+  to `raw_image/` (clean originals, untouched); the Step 4 input products land in
+  `crop_image/` and their annotation references in `reference_image/`, paired
+  one-to-one by file stem:
 
 ```text
 modes/defect/project/<project_name>/data/raw_image/
@@ -84,8 +85,15 @@ modes/defect/project/<project_name>/data/raw_image/
 ### Step 3 — 裁切 / 使用原始圖片 (Crop / Use Original)
 
 - Use the original images directly, or crop fixed-size inputs.
-- Cropping edits the clean images **in place** inside `data/raw_image/`. Existing
-  generation runs are preserved when you add more inputs.
+- The right-hand **`Step 4 輸入圖像`** list starts **empty** and only fills as you
+  crop. Each click of the crop frame writes **one** cropped tile as a separate
+  `<stem>_cropNNN` product into `data/crop_image/` and selects it in the preview, so
+  you can keep cropping more tiles from the same original (連續裁切) without altering
+  the upload in `data/raw_image/`. `使用原始圖片` instead copies whole originals into
+  `data/crop_image/` as no-crop inputs.
+- Switching a project that already holds whole-original inputs over to cropping warns
+  **once** before the first crop (it discards those originals and their ROI/Target),
+  not on every click. Existing generation runs are always preserved.
 
 ### Step 4 — ROI / Target Area 框選
 
@@ -105,10 +113,12 @@ modes/defect/project/<project_name>/data/raw_image/
   It is drawn to look **identical to the Step 4 editor**: the ROI box is **red** and
   the Target Area box is **blue**, each a 3px **outline only with no fill** (so what
   you draw and what is sent to the API as Image 2 match). It is paired one-to-one with
-  its raw image by file stem and becomes **Image 2** during generation:
+  its Step 4 input image (`data/crop_image/`) by file stem and becomes **Image 2**
+  during generation:
 
 ```text
-modes/defect/project/<project_name>/data/raw_image/        # Image 1: clean originals
+modes/defect/project/<project_name>/data/raw_image/        # staged uploads (untouched)
+modes/defect/project/<project_name>/data/crop_image/       # Image 1: Step 4 input products
 modes/defect/project/<project_name>/data/reference_image/  # Image 2: ROI/Target Area annotation
 ```
 
@@ -153,8 +163,9 @@ delete all/selected Target Area · `Up`/`Down` switch image.
 
 - Runs `scripts/batch_from_folders.py`, which calls `scripts/run_gpt_image2.py` with
   `--workflow reference-guided-edit`. One OpenAI Image Edit API call is made per
-  matched tuple of (raw image + its reference image + prompt):
-  - **Image 1** — clean original from `data/raw_image/`
+  matched tuple of (input image + its reference image + prompt):
+  - **Image 1** — Step 4 input image from `data/crop_image/` (a cropped tile, or a
+    whole original copied in via `使用原始圖片`)
   - **Image 2** — ROI / Target Area annotation from `data/reference_image/`
 - ROI / Target Area coordinates are not sent in the prompt and are not used as an
   OpenAI API mask; the geometry is conveyed only by Image 2.
@@ -195,8 +206,8 @@ scripts/run_gpt_image2.py         # GPT Image generation backend (reference-guid
 scripts/verify_env.py             # environment verification helper
 ```
 
-- A project folder holds exactly `data/` (`raw_image/` + `reference_image/`) and
-  `runs/` — no per-project state file is written (no `project_state.json`, `configs/`,
+- A project folder holds exactly `data/` (`raw_image/` + `crop_image/` +
+  `reference_image/`) and `runs/` — no per-project state file is written (no `project_state.json`, `configs/`,
   `exports/`, `logs/`, or `_ui_state/`). Projects are listed from a single
   `modes/defect/project/project_index.json` registry, which also stores each project's
   per-step completion flags and ROI/Target `regions` geometry, so reopening restores

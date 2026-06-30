@@ -39,7 +39,7 @@ python launch_ui.py
 flowchart TD
     S1["Step 1 · Homepage / 專案管理<br/>create/open/copy/delete project · shared OpenAI API key"]
     S2["Step 2 · 資料上傳<br/>import or drag source images into flat data/"]
-    S3["Step 3 · 裁切 / 使用原始圖片<br/>use originals or crop fixed-size inputs (edited in place)"]
+    S3["Step 3 · 裁切 / 使用原始圖片<br/>use originals or crop fixed-size inputs into data/crop_image/"]
     S4["Step 4 · Prompt 編輯<br/>引用組別 + Prompt 來源設定 + 輸入指令"]
     S5["Step 5 · 模型與生成參數<br/>model · quality · size · output count · 輸出資料夾名稱"]
     S6["Step 6 · Aggregate 確認<br/>review every setting before generating"]
@@ -71,21 +71,28 @@ flowchart TD
 
 - Import images with the file picker or drag-and-drop; the most recently added image
   is previewed immediately.
-- `data/` is a **flat** folder that holds the input images directly — there are no
-  `00_raw_images/`, `01_inputs/`, `masks/`, or `regions/` subfolders:
+- `data/` is a **flat** folder that holds the uploaded images directly (no
+  `00_raw_images/`, `01_inputs/`, `masks/`, or `regions/` subfolders); the only
+  subfolder is `crop_image/`, which holds the prepared Step 4 input products:
 
 ```text
-modes/food/project/<project_name>/data/
+modes/food/project/<project_name>/data/             # uploaded originals (untouched)
+modes/food/project/<project_name>/data/crop_image/  # Step 4 input products (sent to the API)
 ```
 
 ### Step 3 — 裁切 / 使用原始圖片 (Crop / Use Original)
 
 - Use the original images directly, or crop fixed-size inputs.
-- Cropping edits images **in place** inside `data/`; it does not create a separate
-  inputs tree. Existing generation runs are preserved when you add more inputs.
-- The right-hand input list shows every prepared input together; wheel-scroll over the
-  list switches the selected image. `刪除選取裁切圖` / `刪除所有裁切圖` remove the selected
-  or all inputs.
+- The right-hand **`Step 4 輸入圖像`** list starts **empty** and only fills as you
+  crop. Each click of the crop frame writes **one** cropped tile as a separate
+  `<stem>_cropNNN` product into `data/crop_image/` and selects it in the preview, so
+  you can keep cropping more tiles from the same original (連續裁切) without altering
+  the upload in `data/`. `使用原始圖片` instead copies whole originals into
+  `data/crop_image/` as no-crop inputs; switching existing originals over to cropping
+  warns **once** before the first crop, not on every click. Existing generation runs
+  are preserved.
+- Wheel-scroll over the list switches the selected image. `刪除選取裁切圖` /
+  `刪除所有裁切圖` remove the selected or all input products (the `data/` uploads stay).
 
 ### Step 4 — Prompt 編輯 (Prompt)
 

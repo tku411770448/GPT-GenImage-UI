@@ -2774,8 +2774,12 @@ class MainWindow(QMainWindow):
         return ensure_dir(self.project_dir() / "data" / "raw_image")
 
     def inputs_dir(self) -> Path:
-        # Generation Image 1 source == raw_image folder.
-        return self.raw_dir()
+        # Step 4 input images (crop products / originals explicitly sent to Step 4)
+        # live in their own folder, separate from the untouched Step 2 uploads in
+        # raw_image/. This keeps the "Step 4 輸入圖像" list empty until the user
+        # actually crops, and lets cropping accumulate several tiles from one source
+        # without destroying the original.
+        return ensure_dir(self.project_dir() / "data" / "crop_image")
 
     def reference_dir(self) -> Path:
         # Image 2: pre-rendered ROI/Target annotation reference, paired by stem.
@@ -4397,7 +4401,7 @@ class MainWindow(QMainWindow):
 
     def init_workspace_silent(self) -> None:
         # UI-managed workspace: keep all user products inside project/<project_name>/.
-        for d in [self.raw_dir(), self.reference_dir(), self.runs_dir()]:
+        for d in [self.raw_dir(), self.inputs_dir(), self.reference_dir(), self.runs_dir()]:
             ensure_dir(d)
         self.save_state()
 
@@ -4495,18 +4499,27 @@ class MainWindow(QMainWindow):
         return bool(getattr(self.state, "crop_mode_selected", False))
 
     def reset_step3_visible_previews(self) -> None:
-        """Clear Step 3 visible previews until the user actively selects a thumbnail."""
+        """Reset Step 3 previews; the Step 4 input list mirrors crop_image/.
+
+        The middle canvas, the preview pane and the raw-thumbnail selection are
+        cleared so nothing stale carries over, but the "Step 4 輸入圖像" grid is
+        repopulated from inputs_dir(): empty on the first visit (before any crop)
+        and showing the accumulated crop products on later visits.
+        """
         if hasattr(self, "crop_canvas"):
             self.crop_canvas.set_image(None)
-        if hasattr(self, "crop_done_grid"):
-            self.crop_done_grid.clear()
         if hasattr(self, "crop_done_preview"):
             self.crop_done_preview.clear("尚無 Step 4 輸入圖像")
         if hasattr(self, "raw_thumb_grid"):
             self.raw_thumb_grid.clearSelection()
+        if hasattr(self, "crop_done_grid"):
+            self.refresh_crops(auto_select=False)
 
     def prepare_step3_entry(self) -> None:
         """Called whenever Step 3 is entered/reloaded; prevents stale preview carry-over."""
+        # Re-arm the one-shot "改用裁切圖" reminder for this Step 3 visit so the user
+        # is warned at most once before the first crop, not on every click.
+        self._step3_crop_warned = False
         if hasattr(self, "raw_thumb_grid"):
             self.refresh_raw_thumbs()
         self.reset_step3_visible_previews()
@@ -4678,9 +4691,11 @@ class MainWindow(QMainWindow):
         """
         folders: list[Path] = []
         if clear_inputs:
-            # raw_image holds the input images themselves and is preserved here;
-            # only the downstream annotation references are invalidated. ROI/Target
-            # geometry lives in project_state.json (state.regions).
+            # raw_image holds the untouched Step 2 uploads and is preserved here.
+            # The Step 4 input products (crop_image/) and their rendered annotation
+            # references are invalidated. ROI/Target geometry lives in
+            # project_state.json (state.regions) and is reset below.
+            folders.append(self.inputs_dir())
             folders.append(self.reference_dir())
         if clear_runs_exports:
             folders.extend([self.runs_dir(), self.exports_dir()])
@@ -4708,15 +4723,19 @@ class MainWindow(QMainWindow):
             return None
 
     def use_selected_original_image(self) -> None:
-        """Use the currently selected raw image as a Step 4 input without cropping.
+        """Copy the currently selected raw image into inputs_dir() as a Step 4 input.
 
-        raw_image/ is already the generation input folder, so no copy is made and
-        no crop record is written.
+        inputs_dir() (crop_image/) is now separate from raw_image/, so the whole
+        original is copied in as a no-crop Step 4 input without altering the upload.
         """
         src = self.selected_raw_image_path()
         if not src:
             QMessageBox.warning(self, "Missing", "請先點選左側『已上傳圖像縮圖』中的一張圖片。")
             return
+        try:
+            copy_image_to(src, self.inputs_dir(), stem_hint=src.stem)
+        except Exception as exc:
+            QMessageBox.critical(self, "Copy failed", str(exc)); return
         self.state.crop_mode = "mixed"
         self.state.crop_mode_selected = True
         self.state.completed_steps[3] = False
@@ -4764,9 +4783,15 @@ class MainWindow(QMainWindow):
             )
             if ret != QMessageBox.StandardButton.Yes:
                 return False
-        # raw_image/ already holds the input images; just invalidate downstream
-        # references/geometry without copying or writing crop records.
+        # inputs_dir() (crop_image/) is separate from raw_image/, so copy every raw
+        # upload in as a whole-image (no-crop) Step 4 input after clearing any
+        # previous crop products / annotation references.
         self.clear_downstream_generation_artifacts(clear_inputs=True, clear_runs_exports=False)
+        for r in raws:
+            try:
+                copy_image_to(r, self.inputs_dir(), stem_hint=r.stem)
+            except Exception:
+                pass
         self.state.crop_mode = "no_crop"
         self.state.crop_mode_selected = True
         self.state.completed_steps[3] = bool(mark_completed)
@@ -4804,39 +4829,63 @@ class MainWindow(QMainWindow):
             self.confirm_crop_size()
         self.status_label.setText("Status: 已載入原圖。可在中間圖像進行裁切；若要全部原圖直接送入 Step 4，請按底部『使用原始圖片』。")
 
+    def _next_crop_output_path(self, src: Path) -> Path:
+        """Pick a fresh `<source>_cropNNN` filename inside inputs_dir().
+
+        Crop products accumulate as separate files so the user can keep cropping
+        more tiles from the same source image ("連續裁切") without overwriting the
+        untouched original in raw_image/.
+        """
+        inputs = self.inputs_dir()
+        base = sanitize_name(src.stem)
+        suffix = src.suffix.lower() if src.suffix.lower() in SUPPORTED_EXTS else ".png"
+        existing = {p.stem for p in list_images(inputs)}
+        i = 1
+        while f"{base}_crop{i:03d}" in existing:
+            i += 1
+        return inputs / f"{base}_crop{i:03d}{suffix}"
+
     def make_crop_from_rect(self, src: Path, rect: tuple[int,int,int,int]) -> Optional[Path]:
-        # Switching from 「使用原始圖片」 back to cropping must clear the previously copied
-        # originals (and their ROI/Target Area) before the first crop is committed. A clean
-        # project or one that is already in crop mode adds crops without any prompt.
-        if "no_crop" in self.step4_input_modes():
+        # Each click writes one cropped tile into inputs_dir() (crop_image/) without
+        # touching the original in raw_image/, so cropping is additive and repeatable.
+        inputs = ensure_dir(self.inputs_dir())
+        # If the Step 4 inputs currently hold whole originals (from 「使用原始圖片」),
+        # the first crop replaces them with cropped tiles. Warn only once per Step 3
+        # visit so continuous cropping does not nag on every click.
+        no_crop_inputs = [p for p in list_images(inputs) if not re.search(r"_crop\d+$", p.stem)]
+        if no_crop_inputs and not getattr(self, "_step3_crop_warned", False):
             ret = QMessageBox.question(
                 self,
                 "改用裁切圖",
-                "此動作會清除目前繪製完成的 ROI 與 Target Area ，並以裁切後的圖像就地取代原圖作為 Step 4 輸入。既有的 runs 會保留。是否繼續？",
+                "此動作會清除目前以原圖作為 Step 4 輸入的圖像與其 ROI / Target Area，改用裁切後的圖像作為 Step 4 輸入。既有的 runs 會保留。是否繼續？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if ret != QMessageBox.StandardButton.Yes:
                 return None
-            self.clear_downstream_generation_artifacts(clear_inputs=True, clear_runs_exports=False)
+            self._step3_crop_warned = True
+        # Produce the cropped tile FIRST; only discard the whole-original inputs it
+        # replaces after the crop is safely written, so a failed save loses nothing.
         try:
             img=Image.open(src).convert("RGB"); crop=img.crop(rect)
-            # Crop in place: overwrite the source image in raw_image/ so the input
-            # keeps the same stem; no separate crop folder or crop records.
-            out=src; crop.save(out)
-            # Editing the raw image invalidates any previously rendered reference.
+            out=self._next_crop_output_path(src); crop.save(out)
+        except Exception as exc:
+            QMessageBox.critical(self,"Crop failed",str(exc)); return None
+        for p in no_crop_inputs:
             try:
-                ref = self.reference_dir()/f"{src.stem}.png"
+                if p.exists(): p.unlink()
+            except Exception:
+                pass
+            try:
+                ref = self.reference_dir()/f"{p.stem}.png"
                 if ref.exists(): ref.unlink()
             except Exception:
                 pass
-            self.state.regions.pop(src.stem, None)
-            self.state.crop_mode = "mixed"
-            self.state.crop_mode_selected = True
-            self.save_state()
-            # Preserve previous runs/exports when cropping.
-            self.mark_dirty(3); return out
-        except Exception as exc:
-            QMessageBox.critical(self,"Crop failed",str(exc)); return None
+            self.state.regions.pop(p.stem, None)
+        self.state.crop_mode = "crop"
+        self.state.crop_mode_selected = True
+        self.save_state()
+        # Preserve previous runs/exports when cropping.
+        self.mark_dirty(3); return out
 
 
     def _rewrite_crop_record_text_output(self, txt_path: Path, output_name: str) -> None:
@@ -4896,11 +4945,9 @@ class MainWindow(QMainWindow):
         if not (hasattr(self, "crop_done_grid") and self.crop_done_grid.count()):
             QMessageBox.information(self, "Info", "目前沒有可刪除的裁切圖。")
             return
-        # Remove every Step 4 input image together with its reference image and
-        # ROI / Target Area geometry. Existing runs are preserved.
-        for p in list_images(self.raw_dir()):
-            try: p.unlink()
-            except Exception: pass
+        # Remove every Step 4 input product (crop_image/) together with its reference
+        # image and ROI / Target Area geometry. The Step 2 uploads in raw_image/ are
+        # kept so the user can crop again; existing runs are preserved.
         self.clear_downstream_generation_artifacts(clear_inputs=True, clear_runs_exports=False)
         if hasattr(self, "crop_canvas"):
             self.crop_canvas.set_image(None)

@@ -2765,8 +2765,12 @@ class MainWindow(QMainWindow):
         return ensure_dir(self.project_dir() / "data")
 
     def inputs_dir(self) -> Path:
-        # Same folder as raw_dir (no 01_inputs nesting for food).
-        return ensure_dir(self.project_dir() / "data")
+        # Step 4 input images (crop products / originals explicitly sent to Step 4)
+        # live in their own data/crop_image/ folder, separate from the flat Step 2
+        # uploads in data/. This keeps the "Step 4 輸入圖像" list empty until the user
+        # actually crops, and lets cropping accumulate several tiles from one source
+        # without destroying the original.
+        return ensure_dir(self.project_dir() / "data" / "crop_image")
 
     def regions_dir(self) -> Path:
         # Food's prompt-only-edit never uses regions; point at a hidden, non-created path.
@@ -4372,8 +4376,8 @@ class MainWindow(QMainWindow):
 
     def init_workspace_silent(self) -> None:
         # UI-managed workspace: keep all user products inside project/<project_name>/.
-        # Food uses a flat data/ folder; only create data/ and runs/.
-        for d in [self.inputs_dir(), self.runs_dir()]:
+        # Food keeps flat uploads in data/ and Step 4 crop products in data/crop_image/.
+        for d in [self.raw_dir(), self.inputs_dir(), self.runs_dir()]:
             ensure_dir(d)
         self.save_state()
 
@@ -4470,18 +4474,27 @@ class MainWindow(QMainWindow):
         return bool(getattr(self.state, "crop_mode_selected", False))
 
     def reset_step3_visible_previews(self) -> None:
-        """Clear Step 3 visible previews until the user actively selects a thumbnail."""
+        """Reset Step 3 previews; the Step 4 input list mirrors crop_image/.
+
+        The middle canvas, the preview pane and the raw-thumbnail selection are
+        cleared so nothing stale carries over, but the "Step 4 輸入圖像" grid is
+        repopulated from inputs_dir(): empty on the first visit (before any crop)
+        and showing the accumulated crop products on later visits.
+        """
         if hasattr(self, "crop_canvas"):
             self.crop_canvas.set_image(None)
-        if hasattr(self, "crop_done_grid"):
-            self.crop_done_grid.clear()
         if hasattr(self, "crop_done_preview"):
             self.crop_done_preview.clear("尚無 Step 4 輸入圖像")
         if hasattr(self, "raw_thumb_grid"):
             self.raw_thumb_grid.clearSelection()
+        if hasattr(self, "crop_done_grid"):
+            self.refresh_crops(auto_select=False)
 
     def prepare_step3_entry(self) -> None:
         """Called whenever Step 3 is entered/reloaded; prevents stale preview carry-over."""
+        # Re-arm the one-shot "改用裁切圖" reminder for this Step 3 visit so the user
+        # is warned at most once before the first crop, not on every click.
+        self._step3_crop_warned = False
         if hasattr(self, "raw_thumb_grid"):
             self.refresh_raw_thumbs()
         self.reset_step3_visible_previews()
@@ -4652,10 +4665,11 @@ class MainWindow(QMainWindow):
         change intentionally invalidates the whole workflow.
         """
         folders: list[Path] = []
-        # Food uses a flat data/ folder where raw == inputs. The uploaded images
-        # are the Step 4 inputs (crops are done in place), so clearing "inputs"
-        # must NOT delete data/. We only reset the stored selection state below
-        # and, when requested, remove runs/exports.
+        # The flat uploads in data/ are the untouched Step 2 originals and are kept.
+        # The Step 4 input products live in data/crop_image/ (inputs_dir()), so
+        # clearing "inputs" removes those crop products only, never the uploads.
+        if clear_inputs:
+            folders.append(self.inputs_dir())
         if clear_runs_exports:
             folders.extend([self.runs_dir(), self.exports_dir()])
         for folder in folders:
@@ -4681,10 +4695,11 @@ class MainWindow(QMainWindow):
             return None
 
     def use_selected_original_image(self) -> None:
-        """Mark the currently selected raw image as a no-crop Prompt input.
+        """Copy the currently selected raw image into inputs_dir() as a Prompt input.
 
-        Food uses a flat data/ folder, so raw == inputs; the image is already in
-        place. Simply record the no-crop mode and mark downstream steps dirty.
+        inputs_dir() (data/crop_image/) is now separate from the flat uploads in
+        data/, so the whole original is copied in as a no-crop Step 4 input without
+        altering the upload.
         """
         src = self.selected_raw_image_path()
         if not src:
@@ -4696,6 +4711,10 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, "Image error", f"無法讀取原始圖片：{exc}")
             return
+        try:
+            copy_image_to(src, self.inputs_dir(), stem_hint=src.stem)
+        except Exception as exc:
+            QMessageBox.critical(self, "Copy failed", str(exc)); return
 
         self.state.crop_mode = "mixed"
         self.state.crop_mode_selected = True
@@ -4744,8 +4763,15 @@ class MainWindow(QMainWindow):
             )
             if ret != QMessageBox.StandardButton.Yes:
                 return False
-        # Food uses a flat data/ folder; raw images are already the Step 4 inputs.
-        # No copying or crop records are needed.
+        # inputs_dir() (data/crop_image/) is separate from the data/ uploads, so copy
+        # every raw upload in as a whole-image (no-crop) Step 4 input after clearing
+        # any previous crop products.
+        self.clear_downstream_generation_artifacts(clear_inputs=True, clear_runs_exports=False)
+        for r in raws:
+            try:
+                copy_image_to(r, self.inputs_dir(), stem_hint=r.stem)
+            except Exception:
+                pass
         self.state.crop_mode = "no_crop"
         self.state.crop_mode_selected = True
         self.state.completed_steps[3] = bool(mark_completed)
@@ -4783,19 +4809,62 @@ class MainWindow(QMainWindow):
             self.confirm_crop_size()
         self.status_label.setText("Status: 已載入原圖。可在中間圖像進行裁切；若要全部原圖直接送入 Step 4，請按底部『使用原始圖片』。")
 
+    def _next_crop_output_path(self, src: Path) -> Path:
+        """Pick a fresh `<source>_cropNNN` filename inside inputs_dir().
+
+        Crop products accumulate as separate files so the user can keep cropping
+        more tiles from the same source image ("連續裁切") without overwriting the
+        untouched original upload in data/.
+        """
+        inputs = self.inputs_dir()
+        base = sanitize_name(src.stem)
+        suffix = src.suffix.lower() if src.suffix.lower() in SUPPORTED_EXTS else ".png"
+        existing = {p.stem for p in list_images(inputs)}
+        i = 1
+        while f"{base}_crop{i:03d}" in existing:
+            i += 1
+        return inputs / f"{base}_crop{i:03d}{suffix}"
+
     def make_crop_from_rect(self, src: Path, rect: tuple[int,int,int,int]) -> Optional[Path]:
-        # Food crops the source image in place under data/ (no separate crop folder,
-        # no crop records). The cropped result overwrites the original image.
+        # Each click writes one cropped tile into inputs_dir() (data/crop_image/)
+        # without touching the upload in data/, so cropping is additive and repeatable.
+        inputs = ensure_dir(self.inputs_dir())
+        # If the Step 4 inputs currently hold whole originals (from 「使用原始圖片」),
+        # the first crop replaces them with cropped tiles. Warn only once per Step 3
+        # visit so continuous cropping does not nag on every click.
+        no_crop_inputs = [p for p in list_images(inputs) if not re.search(r"_crop\d+$", p.stem)]
+        if no_crop_inputs and not getattr(self, "_step3_crop_warned", False):
+            ret = QMessageBox.question(
+                self,
+                "改用裁切圖",
+                "此動作會清除目前以原圖作為 Step 4 輸入的圖像，改用裁切後的圖像作為 Step 4 輸入。既有的 runs 會保留。是否繼續？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if ret != QMessageBox.StandardButton.Yes:
+                return None
+            self._step3_crop_warned = True
+        # Produce the cropped tile FIRST; only discard the whole-original inputs it
+        # replaces after the crop is safely written, so a failed save loses nothing.
         try:
-            img = Image.open(src).convert("RGB"); crop = img.crop(rect); ensure_dir(self.inputs_dir())
-            out = src
+            img = Image.open(src).convert("RGB"); crop = img.crop(rect)
+            out = self._next_crop_output_path(src)
             crop.save(out)
-            self.state.crop_mode = "mixed"
-            self.state.crop_mode_selected = True
-            # Preserve previous runs/exports when creating additional crops.
-            self.mark_dirty(3); return out
         except Exception as exc:
             QMessageBox.critical(self,"Crop failed",str(exc)); return None
+        for p in no_crop_inputs:
+            try:
+                if p.exists(): p.unlink()
+            except Exception:
+                pass
+            try:
+                self.state.selected_region_stems = [s for s in getattr(self.state, "selected_region_stems", []) if s != p.stem]
+            except Exception:
+                pass
+        self.state.crop_mode = "crop"
+        self.state.crop_mode_selected = True
+        self.save_state()
+        # Preserve previous runs/exports when creating additional crops.
+        self.mark_dirty(3); return out
 
 
     def _rewrite_crop_record_text_output(self, txt_path: Path, output_name: str) -> None:
@@ -4852,8 +4921,8 @@ class MainWindow(QMainWindow):
         if not (hasattr(self, "crop_done_grid") and self.crop_done_grid.count()):
             QMessageBox.information(self, "Info", "目前沒有可刪除的裁切圖。")
             return
-        # Food uses a flat data/ folder; remove every input image file directly.
-        # Existing runs are preserved.
+        # Remove every Step 4 input product from data/crop_image/. The flat uploads
+        # in data/ are kept so the user can crop again; existing runs are preserved.
         for p in list_images(self.inputs_dir()):
             try:
                 if p.exists(): p.unlink()
@@ -5372,7 +5441,7 @@ class MainWindow(QMainWindow):
 
     def build_aggregate_text(self) -> str:
         self.update_state_from_widgets()
-        raw_count=len(list_images(self.inputs_dir())); crop_count=len(list_images(self.inputs_dir()))
+        raw_count=len(list_images(self.raw_dir())); crop_count=len(list_images(self.inputs_dir()))
         selected_paths = self.selected_region_image_paths()
         selected_count = len(selected_paths)
         prompt=self.build_actual_prompt() if hasattr(self,"prompt_edit") else ""
