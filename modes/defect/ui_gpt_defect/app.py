@@ -3327,7 +3327,7 @@ class MainWindow(QMainWindow):
         self.prompt_mode_combo = QComboBox(); self.prompt_mode_combo.addItems(["自訂 prompt", "使用模板"]); self.prompt_mode_combo.setCurrentText("使用模板" if self.state.prompt_mode == "template" else "自訂 prompt")
         self.prompt_template_label = QLabel("模板樣式"); self.prompt_template_combo = QComboBox(); self.prompt_template_combo.addItems(["瑕疵"]); self.prompt_template_combo.setCurrentText(self.state.prompt_template if self.state.prompt_template in ["瑕疵"] else "瑕疵")
         self.apply_template_btn = QPushButton("套用模板到輸入指令"); self.apply_template_btn.clicked.connect(self.safe_action("apply_prompt_template", self.apply_prompt_template))
-        self.prompt_mode_combo.currentTextChanged.connect(self.safe_slot("prompt_mode_changed", lambda *_: self.on_prompt_mode_changed()))
+        self.prompt_mode_combo.currentTextChanged.connect(self.safe_slot("prompt_mode_changed", lambda *_: self.on_prompt_mode_changed(user_action=True)))
         mg.addWidget(QLabel("Prompt 模式"),0,0); mg.addWidget(self.prompt_mode_combo,0,1,1,2)
         mg.addWidget(self.prompt_template_label,1,0); mg.addWidget(self.prompt_template_combo,1,1); mg.addWidget(self.apply_template_btn,1,2)
         lay.addWidget(mode_box, 0)
@@ -5231,13 +5231,21 @@ class MainWindow(QMainWindow):
         if not silent: QMessageBox.information(self,"Done","目前圖像的 ROI / Target Area 已儲存。")
 
     # ---------- prompt ----------
-    def on_prompt_mode_changed(self) -> None:
+    def on_prompt_mode_changed(self, user_action: bool = False) -> None:
         if not hasattr(self, "prompt_mode_combo"):
             return
         is_template = self.prompt_mode_combo.currentText() == "使用模板"
         for w in [self.prompt_template_label, self.prompt_template_combo, self.apply_template_btn]:
             if w is not None:
                 w.setVisible(is_template)
+        # When the user switches the 「Prompt 模式」 field back to 「自訂 prompt」, clear any
+        # leftover template text from 「輸入指令」 so a custom prompt starts from a blank
+        # box. Gated on user_action so the initial page build / project load (which set
+        # the combo with signals blocked) never wipe a saved prompt.
+        if user_action and not is_template and hasattr(self, "prompt_edit"):
+            if self.prompt_edit.toPlainText():
+                self.prompt_edit.clear()
+            self.state.prompt_input = ""
         self.update_actual_prompt_preview()
         self.mark_dirty(5)
 

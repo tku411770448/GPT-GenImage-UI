@@ -103,6 +103,10 @@ modes/food/project/<project_name>/data/crop_image/  # Step 4 input products (sen
 - Layout: `引用組別` (group multi-select with an `ALL` option), `Prompt 來源設定`
   (custom / template + `套用模板到輸入指令`), and the `輸入指令` input. The `輸入指令`
   section fills the width below with an enlarged font.
+- `Prompt 模式` chooses between `自訂 prompt` and `使用模板`. In template mode, press
+  `套用模板到輸入指令` to drop the preset instruction into `輸入指令`; switching the field
+  back to `自訂 prompt` automatically clears `輸入指令` so you start your custom prompt
+  from a blank box (a saved prompt reopened from a project is **not** cleared).
 - Ctrl/Shift multi-select in `引用組別` (max **16** groups). The chosen groups are the
   exact images sent to generation, passed to the backend inline via
   `--selected-stems` (no stems file is written to disk). The list is **click-only**:
