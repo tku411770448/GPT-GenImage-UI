@@ -1225,6 +1225,9 @@ class CropCanvas(QLabel):
         self.image_path: Optional[Path] = None
         self.image_size = (0, 0)
         self.pix: Optional[QPixmap] = None
+        # Full-resolution PIL of the currently loaded source, cached so repeated
+        # crops from the same image do not re-decode it on every click (smooth 連續裁切).
+        self.source_image: Optional["Image.Image"] = None
         self.crop_size: Optional[tuple[int, int]] = None
         self.mouse_pos: Optional[QPoint] = None
         self.crop_callback: Optional[Callable[[Path, tuple[int, int, int, int]], Optional[Path]]] = None
@@ -1242,6 +1245,7 @@ class CropCanvas(QLabel):
         self.moving_active = False
         if not self.image_path:
             self.pix = None
+            self.source_image = None
             self.image_size = (0, 0)
             self.setText("請先選擇縮圖。")
             self.update()
@@ -1249,6 +1253,7 @@ class CropCanvas(QLabel):
         try:
             img = Image.open(self.image_path).convert("RGB")
             self.image_size = img.size
+            self.source_image = img
             self.pix = pil_to_pixmap(img)
             self.setText("")
             if self.active_crop_rect:
@@ -1256,6 +1261,7 @@ class CropCanvas(QLabel):
             self.update()
         except Exception as exc:
             self.pix = None
+            self.source_image = None
             self.image_size = (0, 0)
             self.setText(f"載入失敗：{exc}")
             self.update()
@@ -1389,12 +1395,16 @@ class CropCanvas(QLabel):
         rect = self._image_crop_rect(pos)
         if rect:
             self.active_crop_rect = rect
-            self.edit_enabled = True
+            # Stay in crop mode (edit_enabled stays False): the just-made frame remains
+            # drawn at the clicked position AND the cursor keeps showing a fresh hover
+            # crop frame, so the user can immediately click again for the next tile
+            # (連續裁切). Re-editing/moving an existing frame is still opt-in via right-click.
+            self.edit_enabled = False
             if self.crop_callback:
                 out = self.crop_callback(self.image_path, rect)
                 if out:
                     self.crop_made.emit(str(out))
-        self.mouse_pos = None
+        self.mouse_pos = pos
         self.update()
 
     def _target_rect(self) -> QRect:
@@ -3156,7 +3166,7 @@ class MainWindow(QMainWindow):
         mid.addWidget(QLabel("原尺寸圖像 / 固定裁切框"))
         self.crop_canvas = CropCanvas()
         self.crop_canvas.crop_callback = self.make_crop_from_rect
-        self.crop_canvas.crop_made.connect(self.safe_slot("crop_made_refresh", lambda p="": self.refresh_crops(auto_select=True, select_path=(Path(p) if p else None))))
+        self.crop_canvas.crop_made.connect(self.safe_slot("crop_made_refresh", lambda p="": self.refresh_crops(auto_select=True, select_path=(Path(p) if p else None), keep_canvas=True)))
         mid.addWidget(self.crop_canvas, 1)
 
         right = QVBoxLayout()
@@ -4446,10 +4456,44 @@ class MainWindow(QMainWindow):
     def crop_record_json_path(self) -> Path:
         return self.class_config_dir() / "crop_records.json"
 
+    def _load_all_crop_records(self) -> dict:
+        p = self.crop_record_json_path()
+        if not p.exists():
+            return {}
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_all_crop_records(self, records: dict) -> None:
+        try:
+            self.crop_record_json_path().write_text(
+                json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    def write_crop_record(self, product: Path, source: Path, rect: tuple[int, int, int, int]) -> None:
+        records = self._load_all_crop_records()
+        records[product.stem] = {
+            "source": source.name,
+            "source_path": str(source),
+            "crop_xyxy": [int(v) for v in rect],
+        }
+        self._save_all_crop_records(records)
+
+    def remove_crop_record(self, stem: str) -> None:
+        records = self._load_all_crop_records()
+        if stem in records:
+            records.pop(stem, None)
+            self._save_all_crop_records(records)
+
     def load_crop_record(self, crop_path: Path) -> dict:
-        # Defect mode no longer writes crop records; crops overwrite the source
-        # image in place. Return an empty record so legacy callers stay safe.
-        return {}
+        # Maps a Step 4 input product (crop_image/<stem>) back to its source image
+        # and crop rectangle so the product can be reopened with its crop frame.
+        rec = self._load_all_crop_records().get(crop_path.stem)
+        return rec if isinstance(rec, dict) else {}
 
     def source_path_from_crop_record(self, rec: dict) -> Optional[Path]:
         candidates: list[Path] = []
@@ -4706,6 +4750,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         if clear_inputs:
+            try:
+                rec = self.crop_record_json_path()
+                if rec.exists(): rec.unlink()
+            except Exception:
+                pass
             self.state.selected_region_stems = []
             self.state.regions = {}
         self.init_workspace_silent()
@@ -4866,10 +4915,14 @@ class MainWindow(QMainWindow):
         # Produce the cropped tile FIRST; only discard the whole-original inputs it
         # replaces after the crop is safely written, so a failed save loses nothing.
         try:
-            img=Image.open(src).convert("RGB"); crop=img.crop(rect)
+            img = self._crop_source_image(src)
+            crop = img.crop(rect)
             out=self._next_crop_output_path(src); crop.save(out)
         except Exception as exc:
             QMessageBox.critical(self,"Crop failed",str(exc)); return None
+        # Record which source + region produced this tile so clicking it in the
+        # 「Step 4 輸入圖像」 list can reload the original with its crop frame.
+        self.write_crop_record(out, src, rect)
         for p in no_crop_inputs:
             try:
                 if p.exists(): p.unlink()
@@ -4886,6 +4939,15 @@ class MainWindow(QMainWindow):
         self.save_state()
         # Preserve previous runs/exports when cropping.
         self.mark_dirty(3); return out
+
+    def _crop_source_image(self, src: Path) -> "Image.Image":
+        """Return the full-res source image for cropping, reusing the canvas-cached
+        decode when it matches so continuous cropping does not re-read the file."""
+        canvas = getattr(self, "crop_canvas", None)
+        cached = getattr(canvas, "source_image", None)
+        if cached is not None and getattr(canvas, "image_path", None) == src:
+            return cached
+        return Image.open(src).convert("RGB")
 
 
     def _rewrite_crop_record_text_output(self, txt_path: Path, output_name: str) -> None:
@@ -4933,6 +4995,7 @@ class MainWindow(QMainWindow):
                 try: ref.unlink()
                 except Exception: pass
             self.state.regions.pop(stem, None)
+            self.remove_crop_record(stem)
         self.save_state()
         remaining_crops = list_images(self.inputs_dir())
         if hasattr(self, "crop_canvas"):
@@ -6385,25 +6448,45 @@ class MainWindow(QMainWindow):
     def refresh_raw_thumbs(self)->None:
         self.raw_thumb_grid.load_paths(list_images(self.raw_dir()))
 
-    def refresh_crops(self, auto_select: bool=False, select_path: Optional[Path]=None)->None:
+    def refresh_crops(self, auto_select: bool=False, select_path: Optional[Path]=None, keep_canvas: bool=False)->None:
         # The grid always shows every crop in inputs_dir together (not filtered by the
         # selected raw source). select_path selects a specific crop (e.g. the one just
         # made) so its preview/canvas update without changing which crops are listed.
         # Block signals during (re)load so the transient selection churn while clearing
         # the grid does not fire on_crop_done_selected and hijack the middle canvas.
+        # keep_canvas=True (used right after a crop) highlights + previews the new
+        # product WITHOUT firing on_crop_done_selected, so the middle canvas keeps its
+        # source image and crop frame for the next click (smooth 連續裁切).
+        grid = self.crop_done_grid
         paths=list_images(self.inputs_dir())
-        blocker=QSignalBlocker(self.crop_done_grid)
+        blocker=QSignalBlocker(grid)
         try:
-            self.crop_done_grid.load_paths(paths)
+            grid.load_paths(paths)
         finally:
             del blocker
+        target_row = -1
         if select_path is not None:
             target=Path(select_path).name
-            for i in range(self.crop_done_grid.count()):
-                if Path(self.crop_done_grid.item(i).data(Qt.UserRole)).name == target:
-                    self.crop_done_grid.setCurrentRow(i); return
-        if auto_select and self.crop_done_grid.count(): self.crop_done_grid.setCurrentRow(self.crop_done_grid.count()-1)
-        elif not paths and hasattr(self,"crop_done_preview"): self.crop_done_preview.clear("尚無裁切完成圖")
+            for i in range(grid.count()):
+                if Path(grid.item(i).data(Qt.UserRole)).name == target:
+                    target_row = i; break
+        elif auto_select and grid.count():
+            target_row = grid.count()-1
+        if target_row < 0:
+            if not paths and hasattr(self,"crop_done_preview"):
+                self.crop_done_preview.clear("尚無裁切完成圖")
+            return
+        if keep_canvas:
+            block = QSignalBlocker(grid)
+            try:
+                grid.setCurrentRow(target_row)
+            finally:
+                del block
+            item = grid.item(target_row)
+            if item is not None and hasattr(self, "crop_done_preview"):
+                self.crop_done_preview.set_path(Path(str(item.data(Qt.UserRole))))
+        else:
+            grid.setCurrentRow(target_row)
 
     def refresh_region_thumbs(self)->None:
         if not hasattr(self, "region_thumb_grid"):

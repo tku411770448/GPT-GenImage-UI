@@ -91,8 +91,12 @@ modes/food/project/<project_name>/data/crop_image/  # Step 4 input products (sen
   `data/crop_image/` as no-crop inputs; switching existing originals over to cropping
   warns **once** before the first crop, not on every click. Existing generation runs
   are preserved.
-- Wheel-scroll over the list switches the selected image. `刪除選取裁切圖` /
-  `刪除所有裁切圖` remove the selected or all input products (the `data/` uploads stay).
+- Cropping is continuous: after a click the just-made frame stays on the image and the
+  cursor immediately shows the next hover frame, so you can click again to take the next
+  tile. Clicking a finished tile in `Step 4 輸入圖像` (or wheel-scrolling the list)
+  reloads its source image in the middle view with the exact crop frame that produced it
+  (recorded in `data/crop_records.json`). `刪除選取裁切圖` / `刪除所有裁切圖` remove the
+  selected or all input products (the `data/` uploads stay).
 
 ### Step 4 — Prompt 編輯 (Prompt)
 

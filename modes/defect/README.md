@@ -91,6 +91,11 @@ modes/defect/project/<project_name>/data/raw_image/
   you can keep cropping more tiles from the same original (連續裁切) without altering
   the upload in `data/raw_image/`. `使用原始圖片` instead copies whole originals into
   `data/crop_image/` as no-crop inputs.
+- Cropping is continuous: after a click the just-made frame stays on the image and the
+  cursor immediately shows the next hover frame, so you can click again to take the next
+  tile. Clicking a finished tile in `Step 4 輸入圖像` reloads its source image in the
+  middle view with the exact crop frame that produced it (recorded in
+  `data/crop_records.json`).
 - Switching a project that already holds whole-original inputs over to cropping warns
   **once** before the first crop (it discards those originals and their ROI/Target),
   not on every click. Existing generation runs are always preserved.
